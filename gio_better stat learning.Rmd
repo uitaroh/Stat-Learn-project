@@ -1,6 +1,6 @@
 ---
 title: "statlearning-final"
-author: "giodalmas"
+author: "Horatiu"
 date: '2022-07-13'
 output: html_document
 ---
@@ -350,6 +350,162 @@ let us check the performance on our training data
 ```{r}
 
 predict(training_data)
+
+```
+
+EXperiments to reduce classes
+
+[1] "RW"  "ST"  "LW"  "RCM" "CF"  "CDM" "LCB" "RDM" "RS"  "LCM" "SUB" "CAM" "RCB" "LDM" "LB"  "RB"  "LM"  "RM"  "LS"  "CB"  "RES" ""    "RWB"
+[24] "RF"  "CM"  "LWB" "LAM" "LF"  "RAM"
+
+```{r}
+head(players_22[players_22[,"club_position"] == "RES", "short_name"])
+players_22[players_22[,"club_position"] == "", "short_name"]
+                
+```
+
+```{r}
+head(players_full, n=50)
+summary(players_full)
+```
+```{r}
+single_positions <- strsplit(players_full$player_positions, split = ",")
+
+typeof(single_positions[1][2])
+as.list(single_positions[1])[2]
+
+
+
+```
+```{r}
+install.packages("stringr")     # Install & load stringr package
+library("stringr")
+goalkeepers <- str_detect(players_22$club_position, "GK")
+sum(goalkeepers)
+
+players_22<-subset(players_22, club_position!="GK")
+which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
+dim(players_22)
+#head(players_22, n = 2)
+
+
+```
+############################################
+SL PROJECT
+
+We start by loading the libraries we will need.
+
+```{r}
+library(knitr) 
+#library(kableExtra) #nice html tables
+#library(magick)     #working with images
+library(ggplot2)    #graphs
+library(reshape2)   #dataframe reshaping
+library(viridis)    #colors
+library(stringr)    #working with strings
+library(FactoMineR) #factor analysis (PCA)
+library(factoextra) #factor analysis (PCA)
+#library(kohonen)    #self-organised maps/SOM 
+
+# libraries
+library(dplyr)
+library(ggplot2)
+library(MASS)
+#library(randomForest)
+library(class)
+#library(caret)
+install.packages("corrplot")
+
+library(corrplot)
+library(gridExtra)
+remove.packages(rlang)
+install.packages("rlang")
+install.packages("https://cran.rstudio.com/bin/windows/contrib/4.1/caret_6.0-92.zip")
+install.packages("caret")
+library(mlbench)
+library(caret)
+library(randomForest)
+
+```
+
+We read the file and check the dimensionality of the data
+
+```{r}
+
+players_full <- read.csv("C:\\Users\\gioda\\Downloads\\archive (1)\\players_22.csv") #full dataframe
+dim(players_full) #full dataset
+```
+
+We use 'apply' function to check for features that lack some data
+
+```{r}
+which(apply(X = players_full, MARGIN = 2, FUN = anyNA) == TRUE)
+```
+
+Just 16 features and some of them are  not relevant to our purpose.
+There is a great lot of various positions in soccer. Here is position classification by FIFA.
+
+```{r}
+
+unique(players_full$club_position)
+
+```
+R and L — right and left, F and B — forward and back, C — center, S - striker, M stands for midfielder.
+
+We drop "SUB" and "RES", that stands for "substitutes" and "reserves", and "", because the club position is not specified for these players. Moreover 
+
+```{r}
+
+install.packages("stringr")     # Install & load stringr package
+library("stringr")
+sub <- str_detect(players_full$club_position, "SUB")
+sum(sub)
+
+res <- str_detect(players_full$club_position, "RES")
+sum(res)
+
+no_pos <- str_detect(players_full$club_position, "")
+sum(no_pos)
+```
+
+
+```{r}
+
+
+players_pos <-players_full[!(players_full$club_position=="SUB" | 
+                      players_full$club_position=="RES" | players_full$club_position=="" | 
+                      players_full$club_position=="GK" ),]
+dim(players_pos)
+```
+
+
+```{r}
+top_leagues <- (players_pos$league_level == 1)
+sum(top_leagues, na.rm = TRUE)
+
+```
+skills 
+
+```{r}
+skills_vars <- c(38:72)
+names(players_full[,skills_vars])
+
+```
+
+Top leagues players with defined club position
+
+```{r}
+
+players <- players_pos[top_leagues, skills_vars]
+players <- na.omit(players)
+dim(players)
+
+```
+
+
+
+
+```{r}
 
 ```
 
