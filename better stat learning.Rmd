@@ -2,7 +2,9 @@
 title: "statlearning-final"
 author: "Horatiu"
 date: '2022-07-13'
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -25,6 +27,7 @@ library(stringr)    #working with strings
 library(FactoMineR) #factor analysis (PCA)
 library(factoextra) #factor analysis (PCA)
 #library(kohonen)    #self-organised maps/SOM 
+
 # libraries
 library(dplyr)
 library(ggplot2)
@@ -32,26 +35,39 @@ library(MASS)
 #library(randomForest)
 library(class)
 #library(caret)
+install.packages("corrplot")
+
 library(corrplot)
 library(gridExtra)
+remove.packages(rlang)
+install.packages("rlang")
+install.packages("https://cran.rstudio.com/bin/windows/contrib/4.1/caret_6.0-92.zip")
 install.packages("caret")
-library(mlbench)
+#library(mlbench)
+library(reshape)
+library(corrplot)
 library(caret)
+library(randomForest)
+
+set.seed(123)
 ```
 
 ## Data Cleaning
-
+check dimensions, check columns
 
 ```{r}
-players_full <- read.csv(file = 'E:/horatiu/FIS/players_22.csv/players_22.csv') #full dataset
-dim(players_full)
+players_full <- read.csv("E:/horatiu/FIS/players_22.csv/players_22.csv") #full dataframe
+dim(players_full) #full dataset
+colnames(players_full)
 #summary(players_full)
 ```
+###select relevant columns 
+we also remove position stats because we want to predict positions
 
 ```{r}
-players_22 <- subset(players_full, select = c("short_name","club_position","age","height_cm","weight_kg","pace","shooting","passing","dribbling","defending","physic","attacking_crossing","attacking_finishing","attacking_heading_accuracy","attacking_short_passing","attacking_volleys","skill_dribbling","skill_curve","skill_fk_accuracy","skill_long_passing","skill_ball_control","movement_acceleration","movement_sprint_speed","movement_agility","movement_reactions","movement_balance","power_shot_power","power_jumping","power_stamina","power_strength","power_long_shots","mentality_aggression","mentality_interceptions","mentality_positioning","mentality_vision","mentality_penalties","mentality_composure","defending_marking_awareness","defending_standing_tackle","defending_sliding_tackle"))
+players_22 <- subset(players_full, select = c("short_name","player_positions","age","height_cm","weight_kg","pace","shooting","passing","dribbling","defending","physic","attacking_crossing","attacking_finishing","attacking_heading_accuracy","attacking_short_passing","attacking_volleys","skill_dribbling","skill_curve","skill_fk_accuracy","skill_long_passing","skill_ball_control","movement_acceleration","movement_sprint_speed","movement_agility","movement_reactions","movement_balance","power_shot_power","power_jumping","power_stamina","power_strength","power_long_shots","mentality_aggression","mentality_interceptions","mentality_positioning","mentality_vision","mentality_penalties","mentality_composure","defending_marking_awareness","defending_standing_tackle","defending_sliding_tackle"))
 dim(players_22)
-
+# subset 38:72
 
 ```
 ```{r}
@@ -61,13 +77,15 @@ summary(players_22)
 ## Check how many goalkeepers
 
 ```{r}
+install.packages("stringr")     # Install & load stringr package
+library("stringr")
 goalkeepers <- str_detect(players_22$club_position, "GK")
 sum(goalkeepers)
 
 ```
 #eliminate goalkeepers
 ```{r}
-players_22<-subset(players_22, club_position!="GK")
+players_22<-subset(players_22, player_pos!="GK")
 which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
 dim(players_22)
 #head(players_22, n = 2)
@@ -79,46 +97,84 @@ dim(players_22)
 col<-colnames(players_22)
 col
 ```
+### Now we take only the main position of each player
 
 ```{r}
-#we have to melt the dataset to use in ggplot
+players_22$player_positions<- word(players_22$player_positions, 1, sep = fixed(","))
+unique(players_22$player_positions)
+#insert picture of player positions
+# now we group them into the main 9 positions
 
-players_num = subset(players_22, select = -c(short_name,club_position))
-players_num$height_cm <- players_num$height_cm - 100
-players_m <- melt(players_num)
-head(players_m)
-cormatrix <- cor(players_num)
-corrplot(cor(players_num))
-players_m
+#central back players
+players_22$player_positions[players_22[,"player_positions"]== "LCB"|players_22[,"player_positions"]== "CB"|players_22[,"player_positions"]== "RCB"] <- "CB"
+
+#left back players
+players_22$player_positions[players_22[,"player_positions"]== "LWB"|players_22[,"player_positions"]== "LB"]<-"LB"
+
+#right back players
+players_22$player_positions[players_22[,"player_positions"]== "RWB"|players_22[,"player_positions"]== "RB"]<-"RB"
+
+#central defender midfielders
+players_22$player_positions[players_22[,"player_positions"]== "LDM"|players_22[,"player_positions"]== "CDM"|players_22[,"player_positions"]== "RDM"] <- "CDM"
+
+#central midfielders
+players_22$player_positions[players_22[,"player_positions"]== "LCM"|players_22[,"player_positions"]== "CM"|players_22[,"player_positions"]== "RCM"] <- "CM"
+
+#central attacking midfielder
+players_22$player_positions[players_22[,"player_positions"]== "LAM"|players_22[,"player_positions"]== "CAM"|players_22[,"player_positions"]== "RAM"] <- "CAM"
+
+#left wingers
+players_22$player_positions[players_22[,"player_positions"]== "LM"|players_22[,"player_positions"]== "LW"|players_22[,"player_positions"]== "LF"] <- "LW"
+
+#right wingers
+players_22$player_positions[players_22[,"player_positions"]== "RM"|players_22[,"player_positions"]== "RW"|players_22[,"player_positions"]== "RF"] <- "RW"
+
+#strikers
+players_22$player_positions[players_22[,"player_positions"]== "LS"|players_22[,"player_positions"]== "CF"|players_22[,"player_positions"]== "RS"] <- "ST"
+
+colnames(players_22)
 ```
-#correlation
+#normalize numerical values
 ```{r}
-highcorr <- findCorrelation(cormatrix, cutoff=0.75)
+# normalization function
+normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
+
+# normalize 
+players_norm <- as.data.frame(lapply(players_22[, c(3:40)], normalize))
+
+```
+
+#check correlation matrix
+```{r}
+#create numerical subset
+cormatrix <- cor(players_norm)
+corrplot(cor(players_norm), method = 'shade', type = 'lower', order = 'hclust' )
+```
+```{r}
+highcorr <- findCorrelation(cormatrix, cutoff=0.85)
 highcorr
-col2<-colnames(players_num)
-col2<-col2[-highcorr]
-
-corrplot(cor(players_num[col2])) # it looks much better so we use the variables from col 2
-col2[18]<- "club_position"
+col2<-colnames(players_norm)
 col2
-players_model <- subset(players_22, select = c(col2))
-
+col2<-col2[-highcorr]
+corrplot.mixed(cor(players_norm[highcorr]), lower = "number", upper="pie") # it looks much better so we use the variables from col 2
 ```
-
-
 ```{r}
-col[highcorr]
-#vizualizing positions
-unique(players_22$club_position)
+corrplot(cor(players_num[col2]), type = 'lower',method = 'shade', order = 'hclust')
+players_model <- subset(players_norm)
+players_model$player_positions <- c(players_22$player_positions)
+head(players_model)
 ```
+
+
+
 
 ```{r}
 #here we do the cool violin plots to check distributions
-p <- ggplot(data = players_m, aes(y = variable, x = value, fill = variable, alpha = 0.7)) + 
+p <- ggplot(data = melt(players_num), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + 
              geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(45)) + guides(fill = "none")
 p
 ```
-#one-hot encoding for classification
+
 ```{r}
 players.pca<-prcomp(players_num,center=TRUE, scale.=TRUE)
 summary(players.pca)
@@ -130,6 +186,21 @@ fviz_eig(players.pca, addlabels = TRUE)
 fviz_pca_var(players.pca, labelsize = 2, alpha.var = 1.0, title = "Factor Plane for the FIFA 22 Data")
 ```
 
+#CLASSIFICATION
+
+
+
+
+
+
+
+
+
+
+
+#CLASSIFICATION
+
+
 ### train-test split
 
 ```{r}
@@ -137,10 +208,305 @@ fviz_pca_var(players.pca, labelsize = 2, alpha.var = 1.0, title = "Factor Plane 
 smp_size <- floor(0.7 * nrow(players_model))
 
 ## set the seed to make your partition reproducible
-set.seed(123)
 train_ind <- sample(seq_len(nrow(players_model)), size = smp_size)
 
 train <- players_model[train_ind, ]
 test <- players_model[-train_ind, ]
 dim(test)
+colnames(train)
 ```
+
+We extract 'club_position' column of train dataset because it will be used as 'cl' argument in knn function.
+
+```{r}
+
+
+#extract 39th column of train dataset (club_position) that will be used as 'cl' argument in knn function
+
+train_y <- as.factor(train[,39])
+
+#extract 18th column of test set to measure accuracy
+test_y <- as.factor(test[,39])
+```
+
+
+``` {r}
+##run knn function
+test_pred <- knn(train,test,cl=train_y,k=5)
+head(test_pred)
+```
+
+
+``` {r}
+df_pred=data.frame(test_category,test_pred)
+head(df_pred)
+```
+
+
+``` {r}
+#create confusion matrix
+table <- table(test_category,test_pred)
+table
+```
+
+
+``` {r}
+#Evaluate the model performance
+install.packages("gmodels")
+library(gmodels)
+CrossTable(x=test_category, y=test_pred,prop.chisq = FALSE)
+```
+
+
+``` {r}
+
+##this function divides the correct predictions by total number of predictions that tell us how accurate the model is.
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(table)
+
+```
+
+
+Neural Network
+
+
+
+```{r}
+library(tidyverse) 
+library(neuralnet)
+
+```
+Since the club_position column consists of categorical variables, we need to convert the column into a factor
+
+```{r}
+
+players_model <- players_model %>%  
+  mutate(club_position=as_factor(club_position))
+```
+
+split
+
+```{r}
+training_data_rows <- floor(0.70 * nrow(players_model))
+set.seed(123) 
+training_indices <- sample(c(1:nrow(players_model)), training_data_rows)
+
+```
+
+split d
+
+```{r}
+training_data <- players_model[training_indices,] 
+test_data <- players_model[-training_indices,]
+```
+
+
+
+```{r}
+print(head(players_model))
+
+```
+We build our NN
+
+```{r}
+nn=neuralnet(club_position ~ age + height_cm + weight_kg + pace + attacking_crossing + attacking_heading_accuracy + skill_fk_accuracy + skill_long_passing + movement_agility + power_shot_power + power_jumping + power_stamina + power_strength + mentality_aggression + mentality_interceptions + mentality_penalties + mentality_composure
+,  
+             data=training_data, hidden=c(2,2), linear.output = FALSE)
+```
+
+plot nn
+
+```{r}
+plot(nn)
+```
+Testing
+
+
+```{r}
+print(unique(as.character(players_model$club_position)))
+```
+
+
+```{r}
+
+predict <- function(data){ 
+  prediction <- data.frame(neuralnet::compute(nn,  
+
+                                              data.frame(data[,-5]))$net.result) 
+  labels <- c("RW" , "ST",  "LW" , "RCM" , "CF" , "CDM" , "LCB" , "RDM" , "RS" ,  "LCM" , "SUB", "CAM", "RCB", "LDM", "LB",  "RB",  "LM",  "RM",  "LS",  "CB",  "RES", "RWB", "RF",  "CM",  "LWB", "LAM", "LF",  "RAM" ) 
+  prediction_label <- data.frame(max.col(prediction)) %>%  
+    mutate(prediction=labels[max.col.prediction.]) %>%  
+    select(2) %>%  
+    unlist() 
+
+  table(data$club_position, prediction_label) 
+}
+
+```
+
+let us check the performance on our training data
+
+```{r}
+
+predict(training_data)
+
+```
+
+EXperiments to reduce classes
+
+[1] "RW"  "ST"  "LW"  "RCM" "CF"  "CDM" "LCB" "RDM" "RS"  "LCM" "SUB" "CAM" "RCB" "LDM" "LB"  "RB"  "LM"  "RM"  "LS"  "CB"  "RES" ""    "RWB"
+[24] "RF"  "CM"  "LWB" "LAM" "LF"  "RAM"
+
+```{r}
+head(players_22[players_22[,"club_position"] == "RES", "short_name"])
+players_22[players_22[,"club_position"] == "", "short_name"]
+                
+```
+
+```{r}
+head(players_full, n=50)
+summary(players_full)
+```
+```{r}
+single_positions <- strsplit(players_full$player_positions, split = ",")
+
+typeof(single_positions[1][2])
+as.list(single_positions[1])[2]
+
+
+
+```
+```{r}
+install.packages("stringr")     # Install & load stringr package
+library("stringr")
+goalkeepers <- str_detect(players_22$club_position, "GK")
+sum(goalkeepers)
+
+players_22<-subset(players_22, club_position!="GK")
+which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
+dim(players_22)
+#head(players_22, n = 2)
+
+
+```
+############################################
+SL PROJECT
+
+We start by loading the libraries we will need.
+
+```{r}
+library(knitr) 
+#library(kableExtra) #nice html tables
+#library(magick)     #working with images
+library(ggplot2)    #graphs
+library(reshape2)   #dataframe reshaping
+library(viridis)    #colors
+library(stringr)    #working with strings
+library(FactoMineR) #factor analysis (PCA)
+library(factoextra) #factor analysis (PCA)
+#library(kohonen)    #self-organised maps/SOM 
+
+# libraries
+library(dplyr)
+library(ggplot2)
+library(MASS)
+#library(randomForest)
+library(class)
+#library(caret)
+install.packages("corrplot")
+
+library(corrplot)
+library(gridExtra)
+remove.packages(rlang)
+install.packages("rlang")
+install.packages("https://cran.rstudio.com/bin/windows/contrib/4.1/caret_6.0-92.zip")
+install.packages("caret")
+library(mlbench)
+library(caret)
+library(randomForest)
+
+```
+
+We read the file and check the dimensionality of the data
+
+```{r}
+
+players_full <- read.csv("C:\\Users\\gioda\\Downloads\\archive (1)\\players_22.csv") #full dataframe
+dim(players_full) #full dataset
+```
+
+We use 'apply' function to check for features that lack some data
+
+```{r}
+which(apply(X = players_full, MARGIN = 2, FUN = anyNA) == TRUE)
+```
+
+Just 16 features and some of them are  not relevant to our purpose.
+There is a great lot of various positions in soccer. Here is position classification by FIFA.
+
+```{r}
+
+unique(players_full$club_position)
+
+```
+R and L — right and left, F and B — forward and back, C — center, S - striker, M stands for midfielder.
+
+We drop "SUB" and "RES", that stands for "substitutes" and "reserves", and "", because the club position is not specified for these players. Moreover 
+
+```{r}
+
+install.packages("stringr")     # Install & load stringr package
+library("stringr")
+sub <- str_detect(players_full$club_position, "SUB")
+sum(sub)
+
+res <- str_detect(players_full$club_position, "RES")
+sum(res)
+
+no_pos <- str_detect(players_full$club_position, "")
+sum(no_pos)
+```
+
+
+```{r}
+
+
+players_pos <-players_full[!(players_full$club_position=="SUB" | 
+                      players_full$club_position=="RES" | players_full$club_position=="" | 
+                      players_full$club_position=="GK" ),]
+dim(players_pos)
+dim(players_full[(players_full$club_position=="SUB"|players_full$club_position=="RES"),])
+dim(players_full)
+```
+
+
+```{r}
+top_leagues <- (players_pos$league_level == 1)
+sum(top_leagues, na.rm = TRUE)
+
+```
+skills 
+
+```{r}
+skills_vars <- c(38:72)
+names(players_full[,skills_vars])
+
+```
+
+Top leagues players with defined club position
+
+```{r}
+
+players <- players_pos[top_leagues, skills_vars]
+players <- na.omit(players)
+dim(players)
+
+```
+
+
+
+
+```{r}
+
+```
+
