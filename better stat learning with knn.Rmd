@@ -1,0 +1,304 @@
+---
+title: "statlearning-final"
+author: "Horatiu"
+date: '2022-07-13'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+FIFA 22
+first we do libraries
+
+```{r}
+library(knitr) 
+#library(kableExtra) #nice html tables
+#library(magick)     #working with images
+library(ggplot2)    #graphs
+library(reshape2)   #dataframe reshaping
+library(viridis)    #colors
+library(stringr)    #working with strings
+library(FactoMineR) #factor analysis (PCA)
+library(factoextra) #factor analysis (PCA)
+#library(kohonen)    #self-organised maps/SOM 
+library("stringr")
+
+# libraries
+library(dplyr)
+library(ggplot2)
+library(MASS)
+#library(randomForest)
+library(class)
+#library(caret)
+library(gmodels)
+
+library(tidyverse)
+install.packages("corrplot")
+
+library(corrplot)
+library(gridExtra)
+remove.packages(rlang)
+install.packages("rlang")
+install.packages("https://cran.rstudio.com/bin/windows/contrib/4.1/caret_6.0-92.zip")
+install.packages("caret")
+#library(mlbench)
+library(reshape)
+library(corrplot)
+library(caret)
+library(randomForest)
+install.packages("cvms")
+library(cvms)
+
+set.seed(123)
+```
+
+## Data Cleaning
+check dimensions, check columns
+
+```{r}
+players_full <- read.csv("E:/horatiu/FIS/players_22.csv/players_22.csv") #full dataframe
+dim(players_full) #full dataset
+colnames(players_full)
+head(players_full$preferred_foot, 20)
+```
+###select relevant columns 
+we also remove position stats because we want to predict positions
+
+```{r}
+
+players_full <- players_full[players_full$league_level == 1,]
+
+players_22 <- subset(players_full, select = c("short_name","player_positions","age","height_cm","weight_kg","pace","shooting","passing","preferred_foot","weak_foot","dribbling","defending","physic","attacking_crossing","attacking_finishing","attacking_heading_accuracy","attacking_short_passing","attacking_volleys","skill_dribbling","skill_curve","skill_fk_accuracy","skill_long_passing","skill_ball_control","movement_acceleration","movement_sprint_speed","movement_agility","movement_reactions","movement_balance","power_shot_power","power_jumping","power_stamina","power_strength","power_long_shots","mentality_aggression","mentality_interceptions","mentality_positioning","mentality_vision","mentality_penalties","mentality_composure","defending_marking_awareness","defending_standing_tackle","defending_sliding_tackle"))
+dim(players_22)
+
+```
+```{r}
+head(players_22, n=5)
+summary(players_22)
+```
+## Check how many goalkeepers
+
+```{r}
+#install.packages("stringr")     # Install & load stringr package
+
+goalkeepers <- str_detect(players_22$player_positions, "GK")
+sum(goalkeepers)
+
+```
+#eliminate goalkeepers
+```{r}
+players_22<-subset(players_22, player_positions!="GK")
+which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
+dim(players_22)
+#head(players_22, n = 2)
+```
+
+```{r}
+players_22 <- na.omit(players_22) # delete NA
+dim(players_22)
+col<-colnames(players_22)
+col
+```
+### Now we take only the main position of each player
+
+```{r}
+players_22$player_positions<- word(players_22$player_positions, 1, sep = fixed(","))
+unique(players_22$player_positions)
+#insert picture of player positions
+#modify left,right foot with -1,1
+
+players_22$preferred_foot[players_22[,"preferred_foot"]== "Left"] <- as.numeric(-1)
+players_22$preferred_foot[players_22[,"preferred_foot"]== "Right"] <- as.numeric(1)
+players_22$preferred_foot <- as.numeric(players_22$preferred_foot)
+# now we group them into the main 9 positions
+
+#central back players
+players_22$player_positions[players_22[,"player_positions"]== "LCB"|players_22[,"player_positions"]== "CB"|players_22[,"player_positions"]== "RCB"] <- "CB"
+
+#left back players
+players_22$player_positions[players_22[,"player_positions"]== "LWB"|players_22[,"player_positions"]== "LB"]<-"LB"
+
+#right back players
+players_22$player_positions[players_22[,"player_positions"]== "RWB"|players_22[,"player_positions"]== "RB"]<-"RB"
+
+#central defender midfielders
+players_22$player_positions[players_22[,"player_positions"]== "LDM"|players_22[,"player_positions"]== "CDM"|players_22[,"player_positions"]== "RDM"] <- "CDM"
+
+#central midfielders
+players_22$player_positions[players_22[,"player_positions"]== "LCM"|players_22[,"player_positions"]== "CM"|players_22[,"player_positions"]== "RCM"] <- "CM"
+
+#central attacking midfielder
+players_22$player_positions[players_22[,"player_positions"]== "LAM"|players_22[,"player_positions"]== "CAM"|players_22[,"player_positions"]== "RAM"] <- "CAM"
+
+#left wingers
+players_22$player_positions[players_22[,"player_positions"]== "LM"|players_22[,"player_positions"]== "LW"|players_22[,"player_positions"]== "LF"] <- "LW"
+
+#right wingers
+players_22$player_positions[players_22[,"player_positions"]== "RM"|players_22[,"player_positions"]== "RW"|players_22[,"player_positions"]== "RF"] <- "RW"
+
+#strikers
+players_22$player_positions[players_22[,"player_positions"]== "LS"|players_22[,"player_positions"]== "CF"|players_22[,"player_positions"]== "RS"] <- "ST"
+
+```
+#normalize numerical values
+```{r}
+# normalization function
+normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
+
+# normalize 
+players_norm <- as.data.frame(lapply(players_22[, c(3:42)], normalize))
+head(players_norm)
+```
+
+#check correlation matrix
+```{r}
+#create numerical subset
+cormatrix <- cor(players_norm)
+corrplot(cor(players_norm), method = 'shade', type = 'lower', order = 'hclust' )
+```
+```{r}
+highcorr <- findCorrelation(cormatrix, cutoff=0.8)
+highcorr
+col2<-colnames(players_norm)
+col2
+col2<-col2[-highcorr]
+corrplot.mixed(cor(players_norm[highcorr]), lower = "number", upper="pie") # it looks much better so we use the variables from col 2
+```
+```{r}
+corrplot(cor(players_norm[col2]), type = 'lower',method = 'shade', order = 'hclust')
+players_model <- subset(players_norm)
+players_model$player_positions <- c(players_22$player_positions)
+head(players_model)
+```
+
+
+
+
+```{r}
+#here we do the cool violin plots to check distributions
+p <- ggplot(data = melt(players_norm), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + 
+             geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(45)) + guides(fill = "none")
+p
+```
+
+```{r}
+players.pca<-prcomp(players_norm,center=TRUE, scale.=TRUE)
+summary(players.pca)
+players.pca
+fviz_eig(players.pca, addlabels = TRUE)
+```
+
+```{r}
+fviz_pca_var(players.pca, labelsize = 2, alpha.var = 1.0, title = "Factor Plane for the FIFA 22 Data")
+```
+
+#CLASSIFICATION
+
+
+
+
+
+
+
+
+
+
+
+#CLASSIFICATION
+
+
+### train-test split
+
+```{r}
+## 70% of the sample size
+smp_size <- floor(0.7 * nrow(players_model))
+
+## set the seed to make your partition reproducible
+train_ind <- sample(seq_len(nrow(players_model)), size = smp_size)
+
+train <- players_model[train_ind, ]
+test <- players_model[-train_ind, ]
+dim(test)
+colnames(train)
+```
+
+We extract 'club_position' column of train dataset because it will be used as 'cl' argument in knn function.
+
+```{r}
+
+
+#extract 39th column of train dataset (club_position) that will be used as 'cl' argument in knn function
+
+train_y <- as.factor(train[,41])
+
+#extract 18th column of test set to measure accuracy
+test_y <- as.factor(test[,41])
+```
+
+
+``` {r}
+##run knn function
+class <- factor(c(train_y))
+
+train <- train[1:(length(train)-1)]
+test <- test[1:(length(test)-1)]
+
+accuracy_vect <- c()
+ks<- c()
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+for(k1 in seq(5,100,5)) {
+    test_pred <-knn(train = train, test = test, cl = class, k = k1)
+    accuracy_vect <- append(accuracy_vect,accuracy(table(test_y,test_pred)))
+    ks <- append(ks, k1)
+}
+
+#accuracy_vect<- na.omit(accuracy_vect)
+print(ks[which.max(accuracy_vect)])
+#test_pred <-knn(train = train, test = test, cl = class, k = 10)
+#x = accuracy(table(test_y,test_pred)    
+#accuracy_vect
+plot(ks, accuracy_vect, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
+```
+
+
+``` {r}
+test_pred <-knn(train = train, test = test, cl = class, k = 20)
+df_pred=data.frame(test_y,test_pred)
+head(df_pred)
+```
+
+
+
+
+
+``` {r}
+#Evaluate the model performance
+
+CrossTable(x=test_y, y=test_pred,prop.chisq = FALSE)
+```
+
+
+``` {r}
+
+##this function divides the correct predictions by total number of predictions that tell us how accurate the model is.
+
+accuracy(CrossTable(x=test_y, y=test_pred,prop.chisq = FALSE))
+
+```
+
+##Plotting a better confusion matrix
+```{r}
+#creating confusion matrix
+conf_mat <- confusion_matrix(targets = test_y,
+                             predictions = test_pred)
+#plotting confusion matrix
+plot_confusion_matrix(conf_mat$`Confusion Matrix`[[1]],
+                      add_sums = TRUE)
+```
+
