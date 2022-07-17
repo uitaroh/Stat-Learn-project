@@ -15,18 +15,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### 1.Abstract and motivation
 
-FIFA is one of the most known videogame and the most famous sport title in the industry, in particular we considered FIFA 22 edition.
-Each player covers a specific position on the field; what we want to do is building some models to classify the position of the player, based on the values of its attributes. 
-It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly.
+FIFA is one of the most known videogame and the most famous sport title in the industry, in particular we considered FIFA 22 edition. Each player covers a specific position on the field; what we want to do is building some models to classify the position of the player, based on the values of its attributes. It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly.
 
 ### 2. The dataset - Description &EDA
 
-The original dataset has been extracted from https://sofifa.com/ and contains 19239 players described by 110 different features.
-
+The original dataset has been extracted from <https://sofifa.com/> and contains 19239 players described by 110 different features.
 
 ### 2.1 DataFrame inspection and rough slicing
 
-```{r}
+```{r,echo=FALSE}
 #first we import libraries, some of wich we never use, but just in case
 library(knitr) 
 library(ggplot2)    #graphs
@@ -44,44 +41,45 @@ library(class)
 library(gmodels)
 
 library(tidyverse)
-
+library(stringr)
 library(corrplot)
 library(gridExtra)
 library(reshape)
 library(corrplot)
 library(caret)
 library(randomForest)
-library(cvms)
+library(cvms) 
+library(e1071)
 ```
 
 We set the seed for reproducible experiments
 
-```{r}
+```{r, eval=FALSE}
 set.seed(123)
 ```
 
 First we load the dataset, and check the dimension.
 
-```{r}
-players_full <- read.csv("E:/horatiu/FIS/players_22.csv/players_22.csv") #full dataframe
+```{r, eval=FALSE}
+players_full <- read.csv("E:/horatiu/Documents/players_22.csv") #full dataframe
 dim(players_full) #full dataset
 ```
 
 We have more or less 20k players with 110 attributes. Below we look at how those attributes are named.
 
-```{r}
+```{r, eval=FALSE}
 colnames(players_full)
 ```
 
 To get a better general idea, we also want to look at the type of data they provide
 
-```{r}
+```{r, eval=FALSE}
 head(players_full, 10)
 ```
 
-We perform a rough removal of all the features that will obviously not be relevant to our classification, or some of the ones that are a obvious linear composition of other features. Moreover, since in the lower leagues the split between the attacking and defensive players is more vague, and the given ratings could be less trustworthy, the training will only be performed on the league 1 players. Then, we check the dimensions again.
+We perform a rough removal of all the features that will obviously not be relevant to our classification, or some of the ones that are a obvious linear composition of other features. Moreover, our training will be performed on the league 1 players. Then, we check the dimensions again.
 
-```{r}
+```{r, eval=FALSE}
 
 players_full <- players_full[players_full$league_level == 1,]
 
@@ -94,34 +92,43 @@ dim(players_22)
 
 Apparently we kept only 42 features. Good enough. We will remove more later by performing feature selection so stay tuned.
 
-```{r}
+```{r, eval=FALSE}
 head(players_22, n=5)
 ```
 
-We have a short look at the numerical summary of all the features we selected. On a first glance they look like they need some normalization. But before that, we would love to make some visual presentations.
+We have a short look a numerical summary of all the features we selected. On a first glance they look like they need some normalization. But before that, we would love to make some visual presentations.
 
-```{r}
+```{r, eval=FALSE}
 summary(players_22)
 ```
 
-**2.2 Managing empty entries and goalkeepers**
+**2.2 Managing empty entries**
 
 We look at how many NAs we have on each attribute, in order to decide if we prefer removing them or filling them.
-In addiction, we came to the conclusion that goalkeepers
 
-```{r}
-#players_22<-subset(players_22, player_positions!="GK")
+```{r, eval=FALSE}
 which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
 ```
 
 We decide that we have a statistically dispensable number of NAs so we remove them.
 
-```{r}
+```{r, eval=FALSE}
 players_22 <- na.omit(players_22) # delete NA
 dim(players_22)
 ```
 
-We still have a good chunk of the dataset left.
+We still have a good chunk of the dataset left. Since goalkeepers have special stats, we also would like to take them out. First, we check how many we have.
+
+```{r, eval=FALSE}
+goalkeepers <- str_detect(players_22$player_positions, "GK")
+sum(goalkeepers)
+```
+
+Thus, while they are indisposable on the field, we could not say the same about their data, as it would reduce the accuracy of the classification of the other main positions.
+
+```{r}
+players_22<-subset(players_22, player_positions!="GK")
+```
 
 **2.3 Labelling**
 
@@ -146,15 +153,15 @@ Now, we take a look at the positions, and we plan to group them depending on the
 
 Goalkeeper excluded, there are 26 positions, namely:
 
-1. LWB = Left Wing Back
-2. LB = Left Back
-3. LCB = Left Center Back
-4. CB = Center Back
-5. RCB = Right Center Back
-6. RB = Right Back
-7. RWB = Right Wing Back
-8. LDM = Left Defensive Midfield
-9. CDM = Center Defensive Midfield
+1.  LWB = Left Wing Back
+2.  LB = Left Back
+3.  LCB = Left Center Back
+4.  CB = Center Back
+5.  RCB = Right Center Back
+6.  RB = Right Back
+7.  RWB = Right Wing Back
+8.  LDM = Left Defensive Midfield
+9.  CDM = Center Defensive Midfield
 10. RDM = Right Defensive Midfield
 11. RCM = Right Center Midfield
 12. CM = Center Midfield
@@ -177,25 +184,24 @@ As mentioned above, since 26 labels positions are clearly too many, we cluster t
 
 ***Note:*** This is probably the only part where we applied our "domain knowledge".
 
-
 ```{r}
 
 #central back
 players_22$player_positions[players_22[,"player_positions"]== "LCB"|players_22[,"player_positions"]== "CB"|players_22[,"player_positions"]== "RCB"] <- "CB"
 
-#left back 
+#left back
 players_22$player_positions[players_22[,"player_positions"]== "LWB"|players_22[,"player_positions"]== "LB"]<-"LB"
 
-#right back 
+#right back
 players_22$player_positions[players_22[,"player_positions"]== "RWB"|players_22[,"player_positions"]== "RB"]<-"RB"
 
-#center defensive midfield
+#central deffensive midfielder
 players_22$player_positions[players_22[,"player_positions"]== "LDM"|players_22[,"player_positions"]== "CDM"|players_22[,"player_positions"]== "RDM"] <- "CDM"
 
-#center midfield
+#central midfielder
 players_22$player_positions[players_22[,"player_positions"]== "LCM"|players_22[,"player_positions"]== "CM"|players_22[,"player_positions"]== "RCM"] <- "CM"
 
-#center attacking midfield
+#central attacking midfielder
 players_22$player_positions[players_22[,"player_positions"]== "LAM"|players_22[,"player_positions"]== "CAM"|players_22[,"player_positions"]== "RAM"] <- "CAM"
 
 #left winger
@@ -207,6 +213,14 @@ players_22$player_positions[players_22[,"player_positions"]== "RM"|players_22[,"
 #striker
 players_22$player_positions[players_22[,"player_positions"]== "LS"|players_22[,"player_positions"]== "CF"|players_22[,"player_positions"]== "RS"] <- "ST"
 
+```
+
+Lets take a look at the distribution of our labels
+
+```{r}
+cat<- table(factor(players_22$player_positions))
+pie(cat,
+    col = hcl.colors(length(cat), "BluYl"))
 ```
 
 Time to normalize the numerical values, as promised. For that, we implement a simple re-scaling function, and we apply it on the whole dataframe.
@@ -262,8 +276,6 @@ par(mfrow=c(4,2))
 ggplot(data = melt(players_norm[,1:5]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
-a
-
 ```{r}
 ggplot(data = melt(players_norm[,6:10]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
@@ -275,42 +287,30 @@ Weak foot is a discrete RV with values in 1-5. Preferred foot is +/-1, as discus
 ggplot(data = melt(players_norm[,11:15]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
-aaa
-
 ```{r}
 
 ggplot(data = melt(players_norm[,16:20]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
-
-aaa
 
 ```{r}
 
 ggplot(data = melt(players_norm[,21:25]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
-aaa
-
 ```{r}
 
 ggplot(data = melt(players_norm[,26:30]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
-
-aaa
 
 ```{r}
 
 ggplot(data = melt(players_norm[,31:35]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
-aaa
-
 ```{r}
 
 ggplot(data = melt(players_norm[,36:40]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
-
-aaa
 
 ```{r}
 
@@ -364,11 +364,15 @@ We factorise the labes, so we can use them in our models.
 #factorise labels
 train_y <- as.factor(train[,41])
 test_y <- as.factor(test[,41])
+#remove labels from sets
+train <- train[1:(length(train)-1)]
+test <- test[1:(length(test)-1)]
 ```
 
-Just to take a sneak peek, this is how the validation labels are roughly distributed on the factor plane.We notice that the factor plane separates some types of labels quite good, some not.
+Just to take a sneak peek, this is how the validation labels are roughly distributed on the factor plane.We notice that the factor plane sepparates some types of labels quite good, some not.
 
 ```{r}
+
 test.pca<-prcomp(test,center=TRUE, scale.=TRUE)
 fviz_pca_biplot(test.pca,
                 label = "all",
@@ -383,9 +387,10 @@ Before we train any model, we want to create a function that computes accuracy, 
 
 ```{r}
 accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+
 missclassified <- function(pred, label){
   l<- pred
-  l[c(pred)==c(label)]<- none
+  l[c(pred)==c(label)]<- 0
   return (as.factor(l))
 }
 ```
@@ -442,8 +447,6 @@ conf_mat <- confusion_matrix(targets = test_y,
 Now we visualise it on the factor plane
 
 ```{r}
-
-
 fviz_pca_biplot(test.pca,
                 label = "all",
                 col.ind = missclassified(test_pred,test_y),
@@ -457,12 +460,13 @@ fviz_pca_biplot(test.pca,
 The hyperparameter we experiment with is the number of randomly sampled variables. Changing the number of trees does not do much, and from previous experimentation we realized that around 500 is the optimum value.
 
 ```{r}
+set.seed(123)
 a=c()
 i=5
 for (i in 5:10) {
   model_RF <- randomForest(train_y ~ ., data = train, ntree = 500, mtry = i, importance = TRUE)
   prediction_RF <- predict(model_RF, test, type = "class")
-  a[i-4] = mean(prediction_RF == test_y)
+  a[i-4] = mean(prediction_RF == test_y) # nicer way to do accuracy than we did
 }
 plot(5:10,a)
 ```
@@ -478,6 +482,13 @@ We plot missclassified labels again on the factor plane.
 ```{r}
 model_RF <- randomForest(train_y ~ ., data = train, ntree = 500, mtry = 8, importance = TRUE)
 prediction_RF <- predict(model_RF, test, type = "class")
+```
+
+```{r}
+summary(model_RF)
+```
+
+```{r}
 fviz_pca_biplot(test.pca,
                 label = "all",
                 col.ind = missclassified(prediction_RF,test_y),
@@ -485,9 +496,17 @@ fviz_pca_biplot(test.pca,
                 title = "Classification of labeled/misslabeled players for RF")
 ```
 
-## 3.5 SVM
+We generate a confusion matrix to check misslabeled data
 
 ```{r}
+#Evaluate the model performance
+CrossTable(x=test_y, y=prediction_RF,prop.chisq = FALSE)
+```
+
+**3.5 SVM**
+
+```{r}
+
 svm1 <- svm(formula= train_y~., data=train, 
           type="C-classification", kernal="radial", 
           gamma=0.1, cost=10)
@@ -515,37 +534,48 @@ fviz_pca_biplot(test.pca,
                 title = "Classification of labeled/misslabeled players for SVM")
 ```
 
+We generate a confusion matrix to check misslabeled data
+
+```{r}
+#Evaluate the model performance
+CrossTable(x=test_y, y=prediction_svm,prop.chisq = FALSE)
+```
+
 **3.6 Label Grouping**
 
-The accuracies obtained are decent but not great, and the confusion matrix clearly explains why. 
-Positions like CB, ST, LB, RB get classified really well.
-On the opposite side, the most commonly misclassified position are CAM with CM, and RW with LW and viceversa. 
+The accuracies obtained are decent but not great, and the confusion matrix clearly explains why. Positions like CB, ST, LB, RB get classified really well. On the opposite side, the most commonly misclassified position are CAM with CM, and RW with LW and viceversa.
 
-The first misclassification is explainable with basic attributes of the role. Centrer Attacking Midfielder shares a lot of attacking characteristics with the Winger such as shooting and pace but also many with CM, like passing. 
+The first misclassification is explainable with basic attributes of the role. Centrer Attacking Midfielder shares a lot of attacking characteristics with the Winger such as shooting and pace but also many with CM, like passing.
 
-The second one is a bit more tricky to detect. 
-For Left Back and Right Back the preferred foot plays a big role, since it's hard to find a righty who plays on the left and viceversa, because they cross and tackle mostly with their dominant foot. For RW and LW the distinction is less definable based on the preferred foot. On one hand, a lot of righty players like to play as Left Winger so they can converge to the center to shoot with their strong foot. Same is true for lefty on RW.
-On the other hand, many Wingers like to cross more, so they tend to do it with their preferred foot (LW with left and RW with right). So for the model of course it's really not an easy job to detect these differences that pertain to the single player style of play; and this problem explains the drop in accuracy for these positions.
-In order to improve the accuracy of our classifiers, we group RW and LW together in a new position 'W = Winger' and the CAM with CM.
+The second one is a bit more tricky to detect. For Left Back and Right Back the preferred foot plays a big role, since it's hard to find a righty who plays on the left and viceversa, because they cross and tackle mostly with their dominant foot. For RW and LW the distinction is less definable based on the preferred foot. On one hand, a lot of righty players like to play as Left Winger so they can converge to the center to shoot with their strong foot. Same is true for lefty on RW. On the other hand, many Wingers like to cross more, so they tend to do it with their preferred foot (LW with left and RW with right). So for the model of course it's really not an easy job to detect these differences that pertain to the single player style of play; and this problem explains the drop in accuracy for these positions. In order to improve the accuracy of our classifiers, we group RW and LW together in a new position 'W = Winger' and the CAM with CM.
 
 ```{r}
 test_y2 <- test_y
 levels(test_y2)[levels(test_y2) == "RW"| levels(test_y2) == "LW"] <- "W"
 levels(test_y2)[levels(test_y2) == "CAM"| levels(test_y2) == "CM"] <- "CM"
-unique(test_y2)
+
 
 train_y2 <- train_y
 levels(train_y2)[levels(train_y2) == "RW"| levels(train_y2) == "LW"] <- "W"
 levels(train_y2)[levels(train_y2) == "CAM"| levels(train_y2) == "CM"] <- "CM"
 
+unique(test_y2)
 ```
 
-**3.6.1 Knn**
+```{r}
+#plot pie chart again
+cat<- table(factor(test_y2))
+pie(cat, col = hcl.colors(length(cat), "BluYl"))
+```
+
+This is the new distribution of labels. Now we reproduce the same experiments, expecting a hefty increase in accuracy, with the price of ablation. **3.6.1 Knn**
 
 ```{r}
  prediction_knn2 <-knn(train = train, test = test, cl = train_y2, k = 20)
  CrossTable(x=test_y2, y=prediction_knn2,prop.chisq = FALSE)
 ```
+
+The confusion matrix looks much better
 
 ```{r}
   accuracy(table(prediction_knn2, test_y2))
@@ -564,8 +594,11 @@ fviz_pca_biplot(test.pca,
 ```{r}
  model_RF2 <- randomForest(train_y2 ~ ., data = train, ntree = 500, mtry = 8, importance = TRUE)
 prediction_RF2 <- predict(model_RF2, test, type = "class")
-accuracy(table(prediction_RF2, test_y2))
+summary(model_RF2)
+```
 
+```{r}
+accuracy(table(prediction_RF2, test_y2))
 ```
 
 ```{r}
@@ -574,6 +607,13 @@ fviz_pca_biplot(test.pca,
                 col.ind = missclassified(prediction_RF2,test_y2),
                 legend.title = "Players",
                 title = "Classification of labeled/misslabeled players for RF2")
+```
+
+We generate a confusion matrix to check misslabeled data
+
+```{r}
+#Evaluate the model performance
+CrossTable(x=test_y, y=prediction_RF2,prop.chisq = FALSE)
 ```
 
 **3.6.3 SVM**
@@ -583,8 +623,14 @@ svm2 <- svm(formula= train_y2~., data=train,
           type="C-classification", kernal="radial", 
           gamma=0.1, cost=10)
 prediction_svm2 <- predict(svm2, test, type = "class")
-accuracy(table(test_y2, prediction_svm2))
+```
 
+```{r}
+summary(svm2)
+```
+
+```{r}
+accuracy(table(test_y2, prediction_svm2))
 ```
 
 ```{r}
@@ -595,4 +641,13 @@ fviz_pca_biplot(test.pca,
                 title = "Classification of labeled/misslabeled players for RF2")
 ```
 
-**4. Conclusion and further remarks**
+We generate a confusion matrix to check misslabeled data
+
+```{r}
+#Evaluate the model performance
+CrossTable(x=test_y, y=prediction_svm2,prop.chisq = FALSE)
+```
+
+**4. Conclusion and further research** All in all, position classification is possible for some distinct areas of the football field, but for some specific ones is quite impossible, in the case of multiclass classification. We have tried some specific models for RW&LW, and CM&CAM, respectively, but the results we obtained were not far from random. This is because multiple footballers have the necessary attributes to equally play in multiple spots. In order to improve classification, a multilabel approach on all the player positions would be better.
+
+On one hand, football is a very heterogeneous sport and often the values of the attributes cannot explain as a whole the position of a player since his style of play heavily influence how the role is interpreted and consequently where exactly the player acts on the field. On the other hand, we would also like to believe that with sufficient data, even effective positioning of real players could be calculated.
