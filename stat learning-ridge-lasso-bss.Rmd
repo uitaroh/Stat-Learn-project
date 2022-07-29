@@ -223,13 +223,7 @@ players_norm <- as.data.frame(lapply(players_22[, c(3:44)], normalize))
 head(players_norm,5)
 ```
 
-###
-```{r}
-colnames(players_norm)
-```
-
-
-##Regularization
+2.4 Regularization
 
 #Ridge regression and Lasso
 
