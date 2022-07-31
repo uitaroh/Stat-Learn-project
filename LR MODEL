@@ -1,4 +1,4 @@
-3.5 ### LR 
+3./ ### LR 
 
 crtl<-trainControl(method = "repeatedcv",number = 100,repeats = 10)
 modellr <- nnet::multinom( player_positions~., data = train,trControl=crtl)
