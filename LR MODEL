@@ -1,0 +1,32 @@
+3.5 ### LR 
+
+crtl<-trainControl(method = "repeatedcv",number = 100,repeats = 10)
+modellr <- nnet::multinom( player_positions~., data = train,trControl=crtl)
+
+prediction_lr <- predict(modellr, test, type = "class")
+accuracy(table(test_y, prediction_lr))
+summary(modellr)
+conf_mat <- confusionMatrix(data=prediction_lr, reference = test_y)
+conf_mat
+### LR WITH THE RELABELING
+###I had to modify the position so to not have any sideeffect with the others models put this one as last
+
+train$player_positions[train[,"player_positions"]== "RW"]<-"W"
+train$player_positions[train[,"player_positions"]== "LW"]<-"W"
+train$player_positions[train[,"player_positions"]== "CAM"|train[,"player_positions"]== "CM"]<-"CM"
+test$player_positions[test[,"player_positions"]== "RW" ]<-"W"
+test$player_positions[test[,"player_positions"]== "LW" ]<-"W"
+test$player_positions[test[,"player_positions"]== "CAM"|test[,"player_positions"]== "CM"]<-"CM"
+test_y2<-as.factor(test[,41])
+train_y2<-as.factor(train[,41])
+crtl<-trainControl(method = "repeatedcv",number = 100,repeats = 10)
+modellr2 <- nnet::multinom( player_positions~., data = train,trControl=crtl)
+summary(modellr2)
+
+unique(test_y2)
+prediction_lr2 <- predict(modellr2, test, type = "class")
+accuracy(table(test_y2, prediction_lr2))
+
+conf_mat2 <- confusionMatrix(data=prediction_lr2, reference = test_y2)
+conf_mat2
+
