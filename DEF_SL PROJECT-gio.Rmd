@@ -4,18 +4,22 @@ author: "Horatiu Andrei Palaghiu, Giovanni Dal Mas, Daniele Arsieni"
 date: 
 output:
   pdf_document: default
-  html_document: default
+  latex_engine: xelatex
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Statistical Learning Project - Player position classification
+# Statistical Learning Project - Player position classification and market value estimation
 
 ### 1.Abstract and motivation
 
-FIFA is one of the most known videogame and the most famous sport title in the industry, in particular we considered FIFA 22 edition. Each player covers a specific position on the field; what we want to do in the first part of the project is building some models to classify the position of the player, based on the values of its attributes. It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly. In the second part of our project we will perform a regression task, building some models to evaluate the market price of a football player, using Ridge and Lasso regression.
+FIFA is one of the most known videogames and the most famous sport title in the industry, in particular we considered FIFA 22 edition.
+
+Each player covers a specific position on the field; what we want to do in the first part of the project is building some models to classify the position of the player, based on the values of its attributes. It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly.
+
+In the second part of our project we will perform a regression task, building some models to evaluate the market price of a football player, using Ridge and Lasso regression.
 
 ### 2. The dataset - Description &EDA
 
@@ -87,14 +91,15 @@ We perform a rough removal of all the features that will obviously not be releva
 
 players_full <- players_full[players_full$league_level == 1,]
 
-players_22 <- subset(players_full, select = c("short_name","player_positions","age", "value_eur", "height_cm","weight_kg","pace","shooting","passing","preferred_foot","weak_foot","dribbling","defending","physic","attacking_crossing","attacking_finishing","attacking_heading_accuracy","attacking_short_passing","attacking_volleys","skill_dribbling","skill_curve","skill_fk_accuracy","skill_long_passing","skill_ball_control","movement_acceleration","movement_sprint_speed","movement_agility","movement_reactions","movement_balance","power_shot_power","power_jumping","power_stamina","power_strength","power_long_shots","mentality_aggression","mentality_interceptions","mentality_positioning","mentality_vision","mentality_penalties","mentality_composure","defending_marking_awareness","defending_standing_tackle","defending_sliding_tackle"))
+players_22 <- subset(players_full, select = c("short_name","player_positions","age","potential", "international_reputation", "value_eur", "height_cm","weight_kg","pace","shooting","passing","preferred_foot","weak_foot","dribbling","defending","physic","attacking_crossing","attacking_finishing","attacking_heading_accuracy","attacking_short_passing","attacking_volleys","skill_dribbling","skill_curve","skill_fk_accuracy","skill_long_passing","skill_ball_control","movement_acceleration","movement_sprint_speed","movement_agility","movement_reactions","movement_balance","power_shot_power","power_jumping","power_stamina","power_strength","power_long_shots","mentality_aggression","mentality_interceptions","mentality_positioning","mentality_vision","mentality_penalties","mentality_composure","defending_marking_awareness","defending_standing_tackle","defending_sliding_tackle"))
+
 
 
 dim(players_22)
 
 ```
 
-Apparently we kept only 43 features. Good enough. We will remove more later by performing feature selection so stay tuned.
+Apparently we kept only 45 features. Good enough. We will remove more later by performing feature selection so stay tuned.
 
 We have a short look a numerical summary of all the features we selected. On a first glance they look like they need some normalization. But before that, we would love to make some visual presentations.
 
@@ -165,7 +170,7 @@ players_22$preferred_foot <- as.numeric(players_22$preferred_foot)
 
 Now, we take a look at the positions, and we plan to group them depending on the area of the field that they play in.
 
-![](images/field_positions.jpeg)
+![](field_positions.jpeg)
 
 Goalkeeper excluded, there are 26 positions, namely:
 
@@ -242,6 +247,7 @@ pie(cat,
 ```
 
 Time to normalize the numerical values, as promised. For that, we implement a simple re-scaling function, and we apply it on the whole dataframe.
+
 ```{r}
 set.seed(123)
 
@@ -275,10 +281,7 @@ col2<-col2[-highcorr]
 corrplot.mixed(cor(players_norm[highcorr]), lower = "number", upper="shade", tl.pos = 'lt')
 ```
 
-
- We take a look if we eliminated some of the dark spots from our correlation matrix.
-
-
+We take a look if we eliminated some of the dark spots from our correlation matrix.
 
 ```{r}
 set.seed(123)
@@ -300,6 +303,7 @@ colnames(players_model)
 We did. Looks much better and ready for further investigation.
 
 **2.6 Best Subset selection**
+
 ```{r}
 which(apply(X = players_model, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
 
@@ -317,7 +321,6 @@ set.seed(123)
 par(mfrow=c(4,2))
 ggplot(data = melt(players_f.selected[,1:4]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
-
 
 ```{r}
 set.seed(123)
@@ -354,7 +357,6 @@ Now its finally time to dive into the actual modelling process. We experiment an
 
 Classical split for training and testing models. We keep the classical 70%-30% approach.
 
-
 ```{r}
 set.seed(123)
 ## 70% of the sample size
@@ -372,7 +374,6 @@ print(dim(test))
 ```
 
 We factorise the labels, so we can use them in our models.
-
 
 ```{r}
 set.seed(123)
@@ -434,7 +435,7 @@ for(k1 in seq(1,100)) {
     ks <- append(ks, k1)
 }
 
-plot(ks, accuracy_vect, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
+plot(ks, accuracy_vect, type = "p", col="blue", xlab="K's", ylab="accuracy", main="Accuracy vs K value plot")
 abline(h = max(accuracy_vect), col = "darkorange", lty = 3)
 ```
 
@@ -454,6 +455,7 @@ test_pred <-knn(train = train, test = test, cl = class, k = 51)
 df_pred=data.frame(test_y,test_pred)
 
 ```
+
 We generate a confusion matrix to check misslabeled data
 
 ```{r}
@@ -461,41 +463,51 @@ set.seed(123)
 #Evaluate the model performance
 CrossTable(x=test_y, y=test_pred,prop.chisq = FALSE)
 ```
+
 **3.4 Logistic regression**
 
 ```{r}
 set.seed(123)
 modellr <- nnet::multinom( train_y~., data = train,trControl=crtl)
 ```
+
 ```{r}
 set.seed(123)
 prediction_lr <- predict(modellr, test, type = "class")
 accuracy(table(test_y, prediction_lr))
 ```
+
 Now we create a confusion matrix
+
 ```{r}
 set.seed(123)
 conf_mat <- confusionMatrix(data=prediction_lr, reference = test_y)
 conf_mat
 ```
+
 **3.5 Linear Discriminant Analysis**
+
 ```{r}
 set.seed(123)
 model_lda <- lda(train_y~., data = train)
 prediction_lda <-  predict(model_lda, test, type = "class")
 summary(model_lda)
 ```
+
 ```{r}
 
 set.seed(123)
 accuracy(table(test_y, prediction_lda$class))
 ```
+
 Now we plot the obtained model
+
 ```{r}
 
 set.seed(123)
 plot(model_lda)
 ```
+
 ```{r}
 set.seed(123)
 confusionMatrix(data=prediction_lda$class, reference = test_y)
@@ -509,15 +521,18 @@ model_qda <- qda(train_y~., data = train)
 prediction_qda <-  predict(model_qda, test, type = "class")
 summary(model_qda)
 ```
+
 ```{r}
 set.seed(123)
 accuracy(table(test_y, prediction_qda$class))
 
 ```
+
 ```{r}
 set.seed(123)
 confusionMatrix(data=prediction_lda$class, reference = test_y)
 ```
+
 **3.7 Label Grouping**
 
 The accuracies obtained are decent but not great, and the confusion matrix clearly explains why. Positions like CB, ST, LB, RB get classified really well. On the opposite side, the most commonly misclassified position are CAM with CM, and RW with LW and viceversa.
@@ -556,43 +571,55 @@ set.seed(123)
 prediction_knn2 <-knn(train = train, test = test, cl = train_y2, k = 51)
 confusionMatrix(data=prediction_knn2, reference = test_y2)
 ```
+
 ```{r}
 accuracy(table(test_y2, prediction_knn2))
 
 ```
+
 **3.7.2 Logistic Regression**
+
 ```{r}
 set.seed(123)
 modellr2 <- nnet::multinom( train_y2~., data = train,trControl=crtl)
 ```
+
 ```{r}
 set.seed(123)
 prediction_lr2 <- predict(modellr2, test, type = "class")
 accuracy(table(test_y2, prediction_lr2))
 ```
+
 Now we create a confusion matrix
+
 ```{r}
 set.seed(123)
 confusionMatrix(data=prediction_lr2, reference = test_y2)
 ```
+
 **3.7.3 Linear Discriminant Analysis**
+
 ```{r}
 set.seed(123)
 model_lda2 <- lda(train_y2~., data = train)
 prediction_lda2 <-  predict(model_lda2, test, type = "class")
 summary(model_lda2)
 ```
+
 ```{r}
 
 set.seed(123)
 accuracy(table(test_y2, prediction_lda2$class))
 ```
+
 Now we plot the obtained model
+
 ```{r}
 
 set.seed(123)
 plot(model_lda2)
 ```
+
 ```{r}
 set.seed(123)
 confusionMatrix(data=prediction_lda2$class, reference = test_y2)
@@ -606,24 +633,29 @@ model_qda2 <- qda(train_y2~., data = train)
 prediction_qda2 <-  predict(model_qda2, test, type = "class")
 summary(model_qda2)
 ```
+
 ```{r}
 set.seed(123)
 accuracy(table(test_y2, prediction_qda2$class))
 
 ```
+
 ```{r}
 set.seed(123)
-confusionMatrix(data=prediction_lda2$class, reference = test_y2)
+confusionMatrix(data=prediction_qda2$class, reference = test_y2)
 ```
+
 **3.8 Independent binary classification on confused labels**
 
 **3.8.1 Dataset slicing and model preparation**
 
 First we slice the rows with positions RW and LW and we prepare a train-test split for the mini dataset
+
 ```{r}
 players_model_W <- players_model[players_model$player_positions == "RW" | players_model$player_positions == "LW",]
 dim(players_model_W)
 ```
+
 ```{r}
 set.seed(123)
 ## 70% of the sample size
@@ -640,11 +672,14 @@ test_yW <- as.factor(testW[,25])
 trainW <- trainW[1:(length(trainW)-1)]
 testW <- testW[1:(length(testW)-1)]
 ```
+
 Now we do the same for the pair CM-CAM
+
 ```{r}
 players_model_CM <- players_model[players_model$player_positions == "CM" | players_model$player_positions == "CAM",]
 dim(players_model_CM)
 ```
+
 ```{r}
 set.seed(123)
 ## 70% of the sample size
@@ -663,8 +698,7 @@ testCM <- testCM[1:(length(testCM)-1)]
 unique(test_yCM)
 ```
 
-**3.8.2 Individual modelling**
-Now we try all models on the LW/RW pair
+**3.8.2 Individual modelling** Now we try all models on the LW/RW pair
 
 ```{r}
 set.seed(123)
@@ -673,6 +707,7 @@ modellrW <- nnet::multinom( train_yW~., data = trainW, trControl=crtl)
 prediction_lrW <- predict(modellrW, testW, type = "class")
 accuracy(table(test_yW, prediction_lrW))
 ```
+
 ```{r}
 set.seed(123)
 model_ldaW <- lda(train_yW~., data = trainW)
@@ -681,6 +716,7 @@ prediction_ldaW <-  predict(model_ldaW, testW, type = "class")
 accuracy(table(test_yW, prediction_ldaW$class))
 
 ```
+
 ```{r}
 set.seed(123)
 model_qdaW <- qda(train_yW~., data = trainW)
@@ -689,6 +725,7 @@ prediction_qdaW <-  predict(model_qdaW, testW, type = "class")
 accuracy(table(test_yW, prediction_qdaW$class))
 
 ```
+
 ```{r}
 set.seed(123)
 classW <- factor(c(train_yW))
@@ -705,6 +742,7 @@ for(k1 in seq(1,50)) {
 
 plot(ksW, accuracy_vectW, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
 ```
+
 ```{r}
 set.seed(123)
 print('The best K in our case is:')
@@ -712,6 +750,7 @@ print(ksW[which.max(accuracy_vectW)])
 print('And it gives us an accuracy of:' )
 print(accuracy_vectW[which.max(accuracy_vectW)])
 ```
+
 KNN seems to offer a little improvement in accuracy, with K=22. Now we do the same for the CM/CAM pair
 
 ```{r}
@@ -721,6 +760,7 @@ modellrCM <- nnet::multinom( train_yCM~., data = trainCM, trControl=crtl)
 prediction_lrCM <- predict(modellrCM, testCM, type = "class")
 accuracy(table(test_yCM, prediction_lrCM))
 ```
+
 ```{r}
 set.seed(123)
 model_ldaCM <- lda(train_yCM~., data = trainCM)
@@ -729,6 +769,7 @@ prediction_ldaCM <-  predict(model_ldaCM, testCM, type = "class")
 accuracy(table(test_yCM, prediction_ldaCM$class))
 
 ```
+
 ```{r}
 set.seed(123)
 model_qdaCM <- qda(train_yCM~., data = trainCM)
@@ -737,6 +778,7 @@ prediction_qdaCM <-  predict(model_qdaCM, testCM, type = "class")
 accuracy(table(test_yCM, prediction_qdaCM$class))
 
 ```
+
 ```{r}
 set.seed(123)
 classCM <- factor(c(train_yCM))
@@ -753,6 +795,7 @@ for(k1 in seq(1,50)) {
 
 plot(ksCM, accuracy_vectCM, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
 ```
+
 ```{r}
 set.seed(123)
 print('The best K in our case is:')
@@ -760,29 +803,17 @@ print(ksCM[which.max(accuracy_vectCM)])
 print('And it gives us an accuracy of:' )
 print(accuracy_vectCM[which.max(accuracy_vectCM)])
 ```
+
 In this case, Linear discriminant analysis sepparates the CM/CAM labels the best
 
-**3.9 Model merging**
-Now, in order to improve accuracy, we take the best model for grouped labels with the least confusion, and add the best models for the most confused pairs using a 'Divide et impera' approach to check if we improved our accuracy.
+Still, the accuracies are very small, almost 50%, so it is not worth including these models into the final ones.
 
-```{r}
-  final <- c()
-  w<-1
-  for (i in 1:nrow(test)){
-    a<- as.character(predict(modellr2, test[i,], type = "class"))
-    if (a == "W"){
-      a <- as.character(test_predW[w])
-      w <- w+1
-    }
-    else if (a == "CM"){a <-as.character(predict(model_ldaCM, test[i,], type = "class")$class)
-    }
-    final<- append(final, a)
-  }
 
-final<- as.factor(final)
-accuracy(table(test_y, final))
-```
-**4. Regression on market value using Ridge and Lasso**
+##Regularization
+
+#Ridge regression and Lasso
+
+In this part we explore two shrinkage methods, namely Ridge regression and Lasso, also known as penalized regression methods. Through these techniques we can fit a model wher all the predictors are contained, but some coefficient estimates are shrinked towards 
 
 First we take the players_market and remove the player_positions column that we will not consider for this task.
 
@@ -790,13 +821,6 @@ First we take the players_market and remove the player_positions column that we 
 players_market <-subset(players_m, select = -player_positions)
 head(players_market)
 ```
-
-
-##Regularization
-
-#Ridge regression and Lasso
-
-In this part we explore two shrinkage methods, namely Ridge regression and Lasso, also known as penalized regression methods. Through these techniques we can fit a model wher all the predictors are contained, but some coefficient estimates are shrinked towards zero.
 
 ```{r}
 players_market$value_eur <- as.integer(players_market$value_eur)
@@ -814,7 +838,7 @@ head(players_market)
 normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
 colnames(players_market)
 # normalize 
-players_market_norm <- as.data.frame(lapply(players_market[, c(2:41)], normalize))
+players_market_norm <- as.data.frame(lapply(players_market[, c(2:44)], normalize))
 head(players_market_norm,5)
 ```
 
@@ -836,28 +860,20 @@ grid.ridge <-10^seq(-4,2,length=100)
 ridge.mod<-glmnet(X,y,alpha = 0,lambda = grid.ridge)
 plot(ridge.mod, xvar="lambda", label= TRUE)
 ```
-The plot illustrates how much the coefficients are penalized for different values of  λ. Notice none of the coefficients are forced to be zero
+The plot illustrates how much the coefficients are penalized for different values of  lambda. Notice none of the coefficients are forced to be zero
 
 Looking at the plot the features:
 
 [2]age has a negative impact on th market value, which makes absolute sense since the older the player the less money he will be worth.
-On the other hand, [26] movement agility has a big positive impact on the market price
+On the other hand, [4] international_reputation, [26] movement acceleration and [3] potential have a big positive impact on the market price
 
 ```{r}
 colnames(players_market)
 ```
-We check the coefficient for a generic value of lambda (50Th)
 
-```{r}
-#coeff for lambda[50]
-dim(coef(ridge.mod))
-ridge.mod$lambda[50]
-coef(ridge.mod)[,50]
-```
 
 
 ```{r}
-# evaluate the MSE on a test set
 set.seed(123)
 # select n/2 observations for training set
 train <- sample(1:nrow(X), nrow(X)/2)
@@ -889,10 +905,6 @@ We use cross-validation to choose the value of lambda
 ```{r}
 set.seed(123)
 cv.out.ridge <- cv.glmnet(X[train, ], y[train], alpha = 0, nfold=10)
-```
-
-```{r}
-# lambda values
 cv.out.ridge$lambda[1:10]
 ```
 ```{r}
@@ -950,6 +962,7 @@ Let's compute the R squared.
 The R squared is a statistical measure of how well the regression
 predictions approximate the real data points.
 An R2 of 1 indicates that the regression predictions perfectly fit the data
+
 ```{r}
 ridge.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
 ridge.rsq <- 1 - ridge.rss/ridge.tss  # R squared
@@ -966,7 +979,7 @@ plot(lasso.mod, xvar="lambda", label = TRUE)
 ```
 
 In the Lasso plot we can notice that some coefficients are forced to be zero. 
-Morever, it is clear once again the impact of age and movement_agility on the estimation of a player market price.
+Morever, it is clear once again the impact of international_reputation, acceleration, potential and age on the estimation of a player market price.
 
 
 We use cross-validation to choose the value of lambda
@@ -997,7 +1010,7 @@ mean((lasso.pred-y.test)^2)
 
 ```{r}
 # fit the model with best-lambda on all the data
-lasso.coef <- predict(lasso.mod,type="coefficients",s=bestlam)[1:41,]
+lasso.coef <- predict(lasso.mod,type="coefficients",s=bestlam)[1:44,]
 lasso.coef
 ```
 We check which coefficients were forced to zero 
@@ -1006,7 +1019,7 @@ lasso.coef[lasso.coef!=0]
 length(lasso.coef[lasso.coef!=0])
 which(lasso.coef==0)
 ```
-Only dribbling and physic were forced to be zero 
+Shooting, passing, dribbling, defending, physic, attacking_volleys, skill_ball_control and defending_sliding_tackle  were forced to be zero 
 ```{r}
 # residual sum of squares
 lasso.rss <- sum((lasso.pred - y.test)^2)
@@ -1030,11 +1043,72 @@ ridge.rsq
 lasso.rsq
 ```
 Overall, we can say Lasso regression performs slightly better than Ridge Regression, given the higher R squared and lower Residual Sum of Squares. From both models is clear how age and agility are the features that mostly impact the market value (negatively and positively, respectively).
+The results show that the models explain around 54% of the variance for the market value. 
+R squared value between 0.5 and 0.7 is considered a moderate effect size.
+
+```{r}
+# compare with best subset selection using BIC and AIC
+# apply best subset selection on the training data
+library(leaps)
+regfit.full <- regsubsets(value_eur~., data=players_market_norm[train,])
+reg.summary <- summary(regfit.full)
+reg.summary
+```
+
+```{r}
+# select the model with best BIC
+which.min(reg.summary$bic)
+```
+
+```{r}
+coef(regfit.full, 8)
+```
+```{r}
+mod.bic <- lm(value_eur~age + potential + pace+ international_reputation + movement_reactions  + movement_balance + power_stamina + power_strength, data = players_market_norm[train,])
+```
+
+```{r}
+bic.pred <- predict(mod.bic, newdata=players_market_norm[test,])
+mean((bic.pred-y.test)^2)
+```
+
+```{r}
+# residual sum of squares
+mode.bic.rss <- sum((bic.pred - y.test)^2)
+mode.bic.rss
+```
+
+Let's compute the R squared. 
+
+```{r}
+mod.bic.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
+mod.bic.rsq <- 1 - mode.bic.rss/mod.bic.tss  # R squared
+mod.bic.rsq
+```
+```{r}
+# select the model with best AIC
+which.min(reg.summary$cp)
+```
+```{r}
+coef(regfit.full, 8)
+```
+The features selected are the same for AIC
+
+```{r}
+mod.aic <- lm(value_eur~age + potential + pace+ international_reputation + movement_reactions  + movement_balance + power_stamina + power_strength, data = players_market_norm[train,])
+```
+
+```{r}
+aic.pred <- predict(mod.aic, newdata=players_market_norm[test,])
+mean((aic.pred-y.test)^2)
+```
 
 
-**5. Conclusion and further research** All in all, position classification is possible for some distinct areas of the football field, but for some specific ones is quite impossible, in the case of multiclass classification. We have tried some specific models for RW&LW, and CM&CAM, respectively, but the results we obtained were not far from random. This is because multiple footballers have the necessary attributes to equally play in multiple spots. In order to improve classification, a multilabel approach on all the player positions would be better.
+**5. Conclusion and further research** 
+
+All in all, position classification is possible for some distinct areas of the football field, but for some specific ones is quite impossible, in the case of multiclass classification. We have tried some specific models for RW&LW, and CM&CAM, respectively, but the results we obtained were not far from random. This is because multiple footballers have the necessary attributes to equally play in multiple spots. In order to improve classification, a multilabel approach on all the player positions would be better.
 
 On one hand, football is a very heterogeneous sport and often the values of the attributes cannot explain as a whole the position of a player since his style of play heavily influence how the role is interpreted and consequently where exactly the player acts on the field. On the other hand, we would also like to believe that with sufficient data, even effective positioning of real players could be calculated.
 
-As regard players' market price, the variables to be considered exceed the ones we were in possess of. Of course age plays a big role, since young footballers have way larger margins of improvement; but it is also true that aspects as the contract exipiry or the international profile of the player have a significant effect in real life. When the date of expiry of a player approach, the club is more inclined to agree even a lower price in order not to lose his athlete for free. Footballer players that have a huge fan base (for example on social media) will have a higher price since the club can profit from his visibility, that will result in more supporters and more revenue. 
-With informations such the forementioned we are confident the predictions would be definitely more accurate.
+As regard players' market price, an R squared of 0.54 is a decent value, but not remarkable. Of course age plays a big role, since young footballers have way larger margins of improvement; but it is also true that aspects like the contract expiry, which was not provided, have a significant effect in real life. When the date of expiry of a player approaches, the club is more inclined to agree even a lower price in order not to lose this athlete for free. The feature with the undisputed heavier positive impact is international_reputation and his come as no surprise. Football players that have a huge fan base (for example on social media) have a higher price since the club can profit from his visibility, that will result in more supporters and more revenue. 
+Market value is the result of plenty of different information, some of which are very difficult to add among the features. For example, the current form of a player greatly influence his value: a striker scoring for the past 9 consecutive  matches will surely see his value skyrocket. With additional information like these, the models would definitely improve their performance. 
