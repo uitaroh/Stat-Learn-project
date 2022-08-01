@@ -1,0 +1,808 @@
+---
+title: "Statistical Learning Project - Player position classification"
+author: "Horatiu Andrei Palaghiu, Giovanni Dal Mas, Daniele Arsieni"
+date: 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Statistical Learning Project - Player position classification
+
+### 1.Abstract and motivation
+
+FIFA is one of the most known videogame and the most famous sport title in the industry, in particular we considered FIFA 22 edition. Each player covers a specific position on the field; what we want to do in the first part of the project is building some models to classify the position of the player, based on the values of its attributes. It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly.
+In the second part of our project we will perform a regression task, building some models to evaluate the market price of a football player, using Ridge and Lasso regression.
+
+### 2. The dataset - Description &EDA
+
+The original dataset has been extracted from <https://sofifa.com/> and contains 19239 players described by 110 different features.
+
+### 2.1 DataFrame inspection and rough slicing
+
+```{r,echo=FALSE}
+#first we import libraries, some of wich we never use, but just in case
+library(knitr) 
+library(ggplot2)    #graphs
+library(reshape2)   #dataframe reshaping
+library(viridis)    #colors
+library(stringr)    #working with strings
+library(FactoMineR) #factor analysis (PCA)
+library(factoextra) #factor analysis (PCA)
+library("stringr")
+
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(class)
+library(gmodels)
+
+library(tidyverse)
+library(stringr)
+library(corrplot)
+library(gridExtra)
+library(reshape)
+library(corrplot)
+library(caret)
+library(randomForest)
+library(cvms) 
+library(e1071)
+
+library(data.table)
+library(leaps)
+library(glmnet)
+```
+
+We set the seed for reproducible experiments
+
+```{r, eval=FALSE}
+set.seed(123)
+```
+
+First we load the dataset, and check the dimension.
+
+```{r, eval=FALSE}
+players_full <- read.csv("C:\\Users\\gioda\\Downloads\\archive (1)\\players_22.csv") #full dataframe
+dim(players_full) #full dataset
+```
+
+We have more or less 20k players with 110 attributes. Below we look at how those attributes are named.
+
+```{r, eval=FALSE}
+colnames(players_full)
+```
+
+To get a better general idea, we also want to look at the type of data they provide
+
+```{r, eval=FALSE}
+head(players_full, 10)
+```
+
+We perform a rough removal of all the features that will obviously not be relevant to our classification, or some of the ones that are a obvious linear composition of other features. Moreover, our training will be performed on the league 1 players. Then, we check the dimensions again.
+
+```{r, eval=FALSE}
+
+players_full <- players_full[players_full$league_level == 1,]
+
+players_22 <- subset(players_full, select = c("short_name","player_positions","age","potential", "international_reputation", "value_eur", "height_cm","weight_kg","pace","shooting","passing","preferred_foot","weak_foot","dribbling","defending","physic","attacking_crossing","attacking_finishing","attacking_heading_accuracy","attacking_short_passing","attacking_volleys","skill_dribbling","skill_curve","skill_fk_accuracy","skill_long_passing","skill_ball_control","movement_acceleration","movement_sprint_speed","movement_agility","movement_reactions","movement_balance","power_shot_power","power_jumping","power_stamina","power_strength","power_long_shots","mentality_aggression","mentality_interceptions","mentality_positioning","mentality_vision","mentality_penalties","mentality_composure","defending_marking_awareness","defending_standing_tackle","defending_sliding_tackle"))
+
+
+dim(players_22)
+
+```
+
+Apparently we kept only 45 features. Good enough. We will remove more later by performing feature selection so stay tuned.
+
+```{r, eval=FALSE}
+head(players_22, n=5)
+```
+
+We have a short look a numerical summary of all the features we selected. On a first glance they look like they need some normalization. But before that, we would love to make some visual presentations.
+
+```{r, eval=FALSE}
+summary(players_22)
+```
+
+**2.2 Managing empty entries**
+
+We look at how many NAs we have on each attribute, in order to decide if we prefer removing them or filling them.
+
+```{r, eval=FALSE}
+which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
+```
+
+We decide that we have a statistically dispensable number of NAs so we remove them.
+
+```{r, eval=FALSE}
+players_22 <- na.omit(players_22) # delete NA
+dim(players_22)
+```
+
+We still have a good chunk of the dataset left. Since goalkeepers have special stats, we also would like to take them out. First, we check how many we have.
+
+```{r, eval=FALSE}
+goalkeepers <- str_detect(players_22$player_positions, "GK")
+sum(goalkeepers)
+```
+
+Thus, while they are indisposable on the field, we could not say the same about their data, as it would reduce the accuracy of the classification of the other main positions.
+
+####MODIFIED
+
+We create two subsets: one with value_eur that we will use for the Regression on the market price and the subset players_22 that will be used for th position classification. 
+
+```{r}
+#subset WITH market value (for later)
+
+players_22b <- as.data.frame(copy(players_22))
+
+players_m <-subset(players_22b, player_positions!="GK")
+head(players_m)
+
+```
+
+```{r}
+#subset WITHOUT market value (we also remove potential and international_reputation, not relevant for position classification)
+
+players_22 <-subset(players_22, player_positions!="GK", select = -c(value_eur, potential, international_reputation))
+head(players_22)
+```
+
+
+**2.3 Labelling**
+
+Some players play in multiple positions, but we only want to identify their main one, so we only keep that one. Moreover, we turn the binary "preferred_foot" feature into a numerical type.
+
+```{r}
+
+#Keep only the main preferred position
+players_22$player_positions<- word(players_22$player_positions, 1, sep = fixed(","))
+unique(players_22$player_positions)
+
+# Left foot is -1 and Right foot is 1. Basically one-hot encoding but we only have 2 categories so its easy
+players_22$preferred_foot[players_22[,"preferred_foot"]== "Left"] <- as.numeric(-1)
+players_22$preferred_foot[players_22[,"preferred_foot"]== "Right"] <- as.numeric(1)
+players_22$preferred_foot <- as.numeric(players_22$preferred_foot)
+# now we group them into the main 9 positions
+```
+
+Now, we take a look at the positions, and we plan to group them depending on the area of the field that they play in.
+
+![](images/field_positions.jpeg)
+
+Goalkeeper excluded, there are 26 positions, namely:
+
+1.  LWB = Left Wing Back
+2.  LB = Left Back
+3.  LCB = Left Center Back
+4.  CB = Center Back
+5.  RCB = Right Center Back
+6.  RB = Right Back
+7.  RWB = Right Wing Back
+8.  LDM = Left Defensive Midfield
+9.  CDM = Center Defensive Midfield
+10. RDM = Right Defensive Midfield
+11. RCM = Right Center Midfield
+12. CM = Center Midfield
+13. LCM = Left Center Midfield
+14. RAM = Right Attacking Midfield
+15. CAM = Center Attacking Midfield
+16. LAM = Left Attacking Midfield
+17. LM = Left Midfield
+18. RM = Right Midfield
+19. LW = Left Winger
+20. RW = Right Winger
+21. LF = Left Forward
+22. CF = Center Forward
+23. RF = Right Striker
+24. LS = Left Striker
+25. ST = Striker
+26. RS = Right Striker
+
+As mentioned above, since 26 labels positions are clearly too many, we cluster them into nine classes of positions based on area of action on the field.
+
+***Note:*** This is probably the only part where we applied our "domain knowledge".
+
+```{r}
+
+#central back
+players_22$player_positions[players_22[,"player_positions"]== "LCB"|players_22[,"player_positions"]== "CB"|players_22[,"player_positions"]== "RCB"] <- "CB"
+
+#left back
+players_22$player_positions[players_22[,"player_positions"]== "LWB"|players_22[,"player_positions"]== "LB"]<-"LB"
+
+#right back
+players_22$player_positions[players_22[,"player_positions"]== "RWB"|players_22[,"player_positions"]== "RB"]<-"RB"
+
+#central deffensive midfielder
+players_22$player_positions[players_22[,"player_positions"]== "LDM"|players_22[,"player_positions"]== "CDM"|players_22[,"player_positions"]== "RDM"] <- "CDM"
+
+#central midfielder
+players_22$player_positions[players_22[,"player_positions"]== "LCM"|players_22[,"player_positions"]== "CM"|players_22[,"player_positions"]== "RCM"] <- "CM"
+
+#central attacking midfielder
+players_22$player_positions[players_22[,"player_positions"]== "LAM"|players_22[,"player_positions"]== "CAM"|players_22[,"player_positions"]== "RAM"] <- "CAM"
+
+#left winger
+players_22$player_positions[players_22[,"player_positions"]== "LM"|players_22[,"player_positions"]== "LW"|players_22[,"player_positions"]== "LF"] <- "LW"
+
+#right winger
+players_22$player_positions[players_22[,"player_positions"]== "RM"|players_22[,"player_positions"]== "RW"|players_22[,"player_positions"]== "RF"] <- "RW"
+
+#striker
+players_22$player_positions[players_22[,"player_positions"]== "LS"|players_22[,"player_positions"]== "CF"|players_22[,"player_positions"]== "RS"] <- "ST"
+
+```
+
+Lets take a look at the distribution of our labels
+
+```{r}
+cat<- table(factor(players_22$player_positions))
+pie(cat,
+    col = hcl.colors(length(cat), "BluYl"))
+```
+
+Time to normalize the numerical values, as promised. For that, we implement a simple re-scaling function, and we apply it on the whole dataframe.
+
+```{r}
+# normalization function
+normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
+
+# normalize 
+players_norm <- as.data.frame(lapply(players_22[, c(3:42)], normalize))
+head(players_norm,5)
+```
+
+**2.3 Correlation matrix and feature selection**
+
+We create a correlation matrix. It is big and maybe a bit hard to read, but R gives us the visually appealing option to group plotted features into highly correlated clusters.
+
+```{r}
+
+cormatrix <- cor(players_norm)
+corrplot(cor(players_norm), method = 'shade', sig.level = 0.10, type = 'lower', order = 'hclust', title = "Correlation plot before feature selection")
+```
+
+Now, in order to reduce the number of features, we take away the ones that provide the data with the highest overall correlation.
+
+```{r}
+highcorr <- findCorrelation(cormatrix, cutoff=0.8)
+highcorr
+col2<-colnames(players_norm)
+col2
+col2<-col2[-highcorr]
+corrplot.mixed(cor(players_norm[highcorr]), lower = "number", upper="shade", tl.pos = 'lt')
+```
+
+Now we take a look if we eliminated some of the dark spots from our correlation matrix.
+
+###### MODIFIED added players_norm[col2] & players_f.selected
+
+```{r}
+corrplot(cor(players_norm[col2]), type = 'lower',method = 'shade', order = 'hclust', title = "Correlation plot after feature selection")
+players_f.selected <- players_norm[col2]  #features left
+players_model <- subset(players_f.selected)
+
+#we can add the positions back
+players_model$player_positions <- c(players_22$player_positions)
+```
+
+```{r}
+colnames(players_model)
+```
+
+### MODIFIED Now we have 24 features ---- violin plots for players_f.selected 
+
+We did. Looks much better and ready for further investigation.
+
+**2.4 Individual feature investigation**
+
+We want to look at the individual distributions of each of the features left. We fit violin plots, and put boxplots on top of them.
+
+```{r}
+#here we do the cool violin plots to check distributions
+par(mfrow=c(4,2))
+ggplot(data = melt(players_f.selected[,1:4]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
+```
+
+
+```{r}
+ggplot(data = melt(players_f.selected[,5:8]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
+```
+
+Weak foot is a discrete RV with values in 1-5. Preferred foot is +/-1, as discussed above. Still, as in real life, a significantly larger proportion of right-footed people.
+
+```{r}
+
+ggplot(data = melt(players_f.selected[,9:12]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
+```
+
+```{r}
+
+ggplot(data = melt(players_f.selected[,13:16]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
+```
+
+```{r}
+
+ggplot(data = melt(players_f.selected[,17:20]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
+```
+
+```{r}
+
+ggplot(data = melt(players_f.selected[,21:24]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
+```
+
+
+**2.5 Principal Component Analysis**
+
+```{r}
+players.pca<-prcomp(players_norm,center=TRUE, scale.=TRUE)
+summary(players.pca)
+```
+
+We obtain 24 components. We want to visualise them.
+
+```{r}
+fviz_eig(players.pca, addlabels = TRUE)
+```
+
+The first 5 components account for 77.7% of the explained variance, while the first 2 for 58.3% of it. Now we want to see how our features project into the main 2D factor plane.
+
+```{r}
+fviz_pca_var(players.pca, labelsize = 2, alpha.var = 1.0, title = "Factor Plane for the FIFA 22 Data")
+```
+
+### 3. Modelling - Multiclass classification
+
+Now its finally time to dive into the actual modelling process. We experiment and compare different classification algorithms.
+
+**3.1 Train-validation split**
+
+Classical split for training and testing models. We keep the classical 70%-30% approach.
+
+#### MODIFIED ---- tr and val set print were inverted
+
+```{r}
+## 70% of the sample size
+smp_size <- floor(0.7 * nrow(players_model))
+
+train_ind <- sample(seq_len(nrow(players_model)), size = smp_size)
+
+train <- players_model[train_ind, ]
+test <- players_model[-train_ind, ]
+
+print('Train set size:')
+print(dim(train))
+print('Validation set size:')
+print(dim(test))
+```
+
+We factorise the labels, so we can use them in our models.
+
+#### MODIFIED 41 --> 25
+
+```{r}
+#factorise labels
+train_y <- as.factor(train[,25])
+test_y <- as.factor(test[,25])
+#remove labels from sets
+train <- train[1:(length(train)-1)]
+test <- test[1:(length(test)-1)]
+```
+
+
+**4. Regression on market value using Ridge and Lasso**
+
+First we take the players_market and remove the player_positions column that we will not consider for this task.
+
+```{r}
+players_market <-subset(players_m, select = -player_positions)
+head(players_market)
+
+```
+
+
+##Regularization
+
+#Ridge regression and Lasso
+
+In this part we explore two shrinkage methods, namely Ridge regression and Lasso, also known as penalized regression methods. Through these techniques we can fit a model wher all the predictors are contained, but some coefficient estimates are shrinked towards zero.
+
+```{r}
+players_market$value_eur <- as.integer(players_market$value_eur)
+
+# Left foot is -1 and Right foot is 1. Basically one-hot encoding but we only have 2 categories so its easy
+players_market$preferred_foot[players_market[,"preferred_foot"]== "Left"] <- as.numeric(-1)
+players_market$preferred_foot[players_market[,"preferred_foot"]== "Right"] <- as.numeric(1)
+players_market$preferred_foot <- as.numeric(players_market$preferred_foot)
+head(players_market)
+```
+
+
+```{r}
+#norm
+
+# normalization function
+normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
+
+colnames(players_market)
+
+# normalize 
+players_market_norm <- as.data.frame(lapply(players_market[, c(2:44)], normalize))
+head(players_market_norm,5)
+```
+
+
+
+```{r}
+attach(players_market_norm)
+X <- model.matrix(value_eur ~.,players_market_norm)
+y <- value_eur
+```
+
+
+#Ridge
+Ridge uses  quadratic shrinking
+
+```{r}
+#ridge regression
+
+grid.ridge <-10^seq(-4,2,length=100)
+ridge.mod<-glmnet(X,y,alpha = 0,lambda = grid.ridge)
+plot(ridge.mod, xvar="lambda", label= TRUE)
+
+```
+The plot illustrates how much the coefficients are penalized for different values of  λ. Notice none of the coefficients are forced to be zero
+
+Looking at the plot the features:
+
+[2]age has a negative impact on th market value, which makes absolute sense since the older the player the less money he will be worth.
+On the other hand, [4] international_reputation, [26] movement acceleration and [3] potential have a big positive impact on the market price
+
+```{r}
+colnames(players_market)
+```
+
+
+
+```{r}
+set.seed(123)
+
+# select n/2 observations for training set
+
+train <- sample(1:nrow(X), nrow(X)/2)
+test <- (-train)
+y.test <- y[test]
+
+```
+
+```{r}
+# fit ridge regression on the training set
+ridge.mod <- glmnet(X[train, ], y[train], alpha = 0,
+                    lambda = grid.ridge, thresh = 1e-12)
+
+```
+
+We estimate the test MSE for one lambda value, e.g lambda = 9
+```{r}
+#We estimate the test MSE for one lambda value, e.g lambda = 9
+
+ridge.pred <- predict(ridge.mod, s = 9, newx = X[test, ], type="response")
+mean((ridge.pred - y.test)^2)
+```
+let's see the coefficients for lambda = 9
+
+```{r}
+predict(ridge.mod, s = 9, exact = TRUE, type = "coefficients",
+        x = X[train, ], y = y[train])[1:41, ]
+
+```
+
+We use cross-validation to choose the value of lambda
+
+```{r}
+set.seed(123)
+cv.out.ridge <- cv.glmnet(X[train, ], y[train], alpha = 0, nfold=10)
+
+cv.out.ridge$lambda[1:10]
+
+```
+```{r}
+summary(cv.out.ridge$lambda)
+```
+
+```{r}
+# The mean cross-validated error
+
+cv.out.ridge$cvm[1:10]
+```
+The following plot shows the cross-validation curve (red dotted line) with upper and lower standard deviation curves along the lambda sequence (error bars). 
+
+Two special values along the lambda sequence are indicated by the vertical dotted lines:
+
+lambda.min is the value of lambda that gives minimum mean cross-validated error, while lambda.1se is the value of lambda that gives the most regularized model such that the cross-validated error is within one standard error of the minimum.
+
+```{r}
+plot(cv.out.ridge)
+```
+
+```{r}
+# identify the best lambda value
+
+i.bestlam <- which.min(cv.out.ridge$cvm)
+i.bestlam 
+```
+```{r}
+bestlam <- cv.out.ridge$lambda[i.bestlam]
+bestlam
+```
+```{r}
+# mean cross-validated error for best lambda
+cv.out.ridge$cvm[i.bestlam]
+```
+
+```{r}
+# estimate the test MSE 
+ridge.pred <- predict(ridge.mod, s = bestlam,
+                      newx = X[test, ])
+#MSE
+mean((ridge.pred - y.test)^2)
+```
+
+```{r}
+# fit the coefficient with lambda=bestlam on all the data
+
+out <- glmnet(X, y, alpha = 0)
+predict(out, type = "coefficients", s = bestlam)
+
+
+```
+```{r}
+# residual sum of squares
+ridge.rss <- sum((ridge.pred - y.test)^2)
+ridge.rss
+```
+
+Let's compute the R squared. 
+The R squared is a statistical measure of how well the regression
+predictions approximate the real data points.
+An R2 of 1 indicates that the regression predictions perfectly fit the data
+
+```{r}
+
+ridge.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
+ridge.rsq <- 1 - ridge.rss/ridge.tss  # R squared
+ridge.rsq
+
+```
+
+#Lasso
+Lasso uses absolute-value shrinking
+
+```{r}
+
+grid.lasso<-10^seq(-0.5,-8,length=100)
+lasso.mod<-glmnet(X,y,alpha = 1,lambda = grid.lasso)
+plot(lasso.mod, xvar="lambda", label = TRUE)
+```
+
+In the Lasso plot we can notice that some coefficients are forced to be zero. 
+Morever, it is clear once again the impact of international_reputation, acceleration, potential and age on the estimation of a player market price.
+
+
+We use cross-validation to choose the value of lambda
+
+```{r}
+set.seed(123)
+cv.out.lasso <- cv.glmnet(X[train, ], y[train], alpha = 1, nfold=10)
+cv.out.lasso$lambda[1:10]
+```
+```{r}
+# apply lasso to the training set 
+lasso.mod <- glmnet(X[train,], y[train], alpha=1, lambda=grid.lasso)
+```
+
+```{r}
+# apply 10fold cross-validation to the training set
+
+set.seed(123)
+cv.out.lasso <- cv.glmnet(X[train,], y[train], alpha=1)
+plot(cv.out.lasso)
+```
+
+```{r}
+
+# estimate test MSE
+bestlam <- cv.out.lasso$lambda.min
+lasso.pred <- predict(lasso.mod, s=bestlam, newx=X[test,])
+mean((lasso.pred-y.test)^2)
+```
+
+```{r}
+# fit the model with best-lambda on all the data
+lasso.coef <- predict(lasso.mod,type="coefficients",s=bestlam)[1:44,]
+lasso.coef
+```
+We check which coefficients were forced to zero 
+```{r}
+lasso.coef[lasso.coef!=0]
+length(lasso.coef[lasso.coef!=0])
+which(lasso.coef==0)
+
+```
+Shooting, passing, dribbling, defending, physic, attacking_volleys, skill_ball_control and defending_sliding_tackle  were forced to be zero 
+```{r}
+# residual sum of squares
+lasso.rss <- sum((lasso.pred - y.test)^2)
+lasso.rss
+
+```
+```{r}
+
+lasso.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
+lasso.rsq <- 1 - lasso.rss/lasso.tss  # R squared
+lasso.rsq
+
+```
+
+```{r}
+#ridge.rss vs lasso.rss
+ridge.rss
+lasso.rss
+```
+
+```{r}
+#ridge.rsq vs lasso.rsq
+ridge.rsq
+lasso.rsq
+```
+Overall, we can say Lasso regression performs slightly better than Ridge Regression, given the higher R squared and lower Residual Sum of Squares. From both models is clear how age and agility are the features that mostly impact the market value (negatively and positively, respectively).
+The results show that the models explain around 54% of the variance for the market value. 
+R squared value between 0.5 and 0.7 is considered a moderate effect size.
+
+```{r}
+# compare with best subset selection using BIC and AIC
+
+# apply best subset selection on the training data
+library(leaps)
+regfit.full <- regsubsets(value_eur~., data=players_market_norm[train,])
+reg.summary <- summary(regfit.full)
+reg.summary
+
+```
+
+```{r}
+
+# select the model with best BIC
+which.min(reg.summary$bic)
+```
+
+```{r}
+coef(regfit.full, 8)
+```
+```{r}
+mod.bic <- lm(value_eur~age + potential + pace+ international_reputation + movement_reactions  + movement_balance + power_stamina + power_strength, data = players_market_norm[train,])
+```
+
+```{r}
+bic.pred <- predict(mod.bic, newdata=players_market_norm[test,])
+mean((bic.pred-y.test)^2)
+
+```
+
+```{r}
+# residual sum of squares
+mode.bic.rss <- sum((bic.pred - y.test)^2)
+mode.bic.rss
+```
+
+Let's compute the R squared. 
+
+```{r}
+
+mod.bic.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
+mod.bic.rsq <- 1 - mode.bic.rss/mod.bic.tss  # R squared
+mod.bic.rsq
+
+```
+```{r}
+# select the model with best AIC
+which.min(reg.summary$cp)
+
+```
+```{r}
+coef(regfit.full, 8)
+```
+The features selected are the same for AIC
+
+```{r}
+mod.aic <- lm(value_eur~age + potential + pace+ international_reputation + movement_reactions  + movement_balance + power_stamina + power_strength, data = players_market_norm[train,])
+```
+
+```{r}
+aic.pred <- predict(mod.aic, newdata=players_market_norm[test,])
+mean((aic.pred-y.test)^2)
+```
+
+##Best Subset selection
+
+```{r}
+fit_all = regsubsets(value_eur ~ ., data = players_market_norm, nvmax = 25)
+fit_all_sum = summary(fit_all)
+
+```
+```{r}
+fit_all_sum$outmat
+```
+
+We can also visualize this matrix with the following plots. When the space is filled by a blue square it means 
+the variable is included in the model. We analize the RSS, Adjusted R2, Cp and BIC
+models.
+
+```{r}
+plot(fit_all, scale="r2", col="#006777")
+
+```
+
+```{r}
+plot(regfit.full,scale="adjr2", col="#006677")
+
+```
+
+
+```{r}
+plot(regfit.full,scale="Cp", col="#006677")
+```
+
+plot(regfit.full,scale="adjr2", col="#006699")
+
+
+```{r}
+plot(regfit.full,scale="bic", col="#006677")
+
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(fit_all_sum$rss, xlab = "Number of Variables", ylab = "RSS", type = "b")
+
+plot(fit_all_sum$adjr2, xlab = "Number of Variables", ylab = "Adjusted RSq", type = "b")
+best_adj_r2 = which.max(fit_all_sum$adjr2)
+points(best_adj_r2, fit_all_sum$adjr2[best_adj_r2],
+       col = "red",cex = 2, pch = 20)
+
+
+plot(fit_all_sum$cp, xlab = "Number of Variables", ylab = "Cp", type = 'b')
+best_cp = which.min(fit_all_sum$cp)
+points(best_cp, fit_all_sum$cp[best_cp], 
+       col = "red", cex = 2, pch = 20)
+
+plot(fit_all_sum$bic, xlab = "Number of Variables", ylab = "BIC", type = 'b')
+best_bic = which.min(fit_all_sum$bic)
+points(best_bic, fit_all_sum$bic[best_bic], 
+       col = "red", cex = 2, pch = 20)
+```
+```{r}
+which.max(reg.summary$adjr2)
+```
+```{r}
+which.min(reg.summary$cp)
+```
+```{r}
+which.min(reg.summary$bic)
+```
+
+
+
+**5. Conclusion and further research** 
+
+All in all, position classification is possible for some distinct areas of the football field, but for some specific ones is quite impossible, in the case of multiclass classification. We have tried some specific models for RW&LW, and CM&CAM, respectively, but the results we obtained were not far from random. This is because multiple footballers have the necessary attributes to equally play in multiple spots. In order to improve classification, a multilabel approach on all the player positions would be better.
+
+On one hand, football is a very heterogeneous sport and often the values of the attributes cannot explain as a whole the position of a player since his style of play heavily influence how the role is interpreted and consequently where exactly the player acts on the field. On the other hand, we would also like to believe that with sufficient data, even effective positioning of real players could be calculated.
+
+As regard players' market price, an R squared of 0.54 is a decent value, but not remarkable. Of course age plays a big role, since young footballers have way larger margins of improvement; but it is also true that aspects like the contract expiry, which was not provided, have a significant effect in real life. When the date of expiry of a player approaches, the club is more inclined to agree even a lower price in order not to lose this athlete for free. The feature with the undisputed heavier positive impact is international_reputation and his come as no surprise. Football players that have a huge fan base (for example on social media) have a higher price since the club can profit from his visibility, that will result in more supporters and more revenue. 
+Market value is the result of plenty of different information, some of which are very difficult to add among the features. For example, the current form of a player greatly influence his value: a striker scoring for the past 9 consecutive  matches will surely see his value skyrocket. With additional information like these, the models would definitely improve their performance. 
