@@ -1,5 +1,5 @@
 ---
-title: "Statistical Learning Project - Player position classification"
+title: "Statistical Learning Project - Player position classification and market value estimation"
 author: "Horatiu Andrei Palaghiu, Giovanni Dal Mas, Daniele Arsieni"
 date: 
 output:
@@ -15,8 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### 1.Abstract and motivation
 
-FIFA is one of the most known videogame and the most famous sport title in the industry, in particular we considered FIFA 22 edition. Each player covers a specific position on the field; what we want to do in the first part of the project is building some models to classify the position of the player, based on the values of its attributes. It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly.
-In the second part of our project we will perform a regression task, building some models to evaluate the market price of a football player, using Ridge and Lasso regression.
+FIFA is one of the most known videogame and the most famous sport title in the industry, in particular we considered FIFA 22 edition. Each player covers a specific position on the field; what we want to do in the first part of the project is building some models to classify the position of the player, based on the values of its attributes. It's important to consider that some players may share some features with footballers playing in another position, and this may influence our task. For example, some attacking midfielders (CAM) have a good shot and pace, just like wingers (RW, LW). We will keep this into account and adjust our classification accordingly. In the second part of our project we will perform a regression task, building some models to evaluate the market price of a football player, using Ridge and Lasso regression.
 
 ### 2. The dataset - Description &EDA
 
@@ -51,7 +50,7 @@ library(caret)
 library(randomForest)
 library(cvms) 
 library(e1071)
-
+library(leaps)
 library(data.table)
 library(leaps)
 library(glmnet)
@@ -59,32 +58,32 @@ library(glmnet)
 
 We set the seed for reproducible experiments
 
-```{r, eval=FALSE}
+```{r}
 set.seed(123)
 ```
 
 First we load the dataset, and check the dimension.
 
-```{r, eval=FALSE}
-players_full <- read.csv("C:\\Users\\gioda\\Downloads\\archive (1)\\players_22.csv") #full dataframe
+```{r}
+players_full <- read.csv("E:/horatiu/Documents/players_22.csv") #full dataframe
 dim(players_full) #full dataset
 ```
 
 We have more or less 20k players with 110 attributes. Below we look at how those attributes are named.
 
-```{r, eval=FALSE}
+```{r}
 colnames(players_full)
 ```
 
 To get a better general idea, we also want to look at the type of data they provide
 
-```{r, eval=FALSE}
+```{r}
 head(players_full, 10)
 ```
 
 We perform a rough removal of all the features that will obviously not be relevant to our classification, or some of the ones that are a obvious linear composition of other features. Moreover, our training will be performed on the league 1 players. Then, we check the dimensions again.
 
-```{r, eval=FALSE}
+```{r}
 
 players_full <- players_full[players_full$league_level == 1,]
 
@@ -97,13 +96,9 @@ dim(players_22)
 
 Apparently we kept only 43 features. Good enough. We will remove more later by performing feature selection so stay tuned.
 
-```{r, eval=FALSE}
-head(players_22, n=5)
-```
-
 We have a short look a numerical summary of all the features we selected. On a first glance they look like they need some normalization. But before that, we would love to make some visual presentations.
 
-```{r, eval=FALSE}
+```{r}
 summary(players_22)
 ```
 
@@ -111,58 +106,57 @@ summary(players_22)
 
 We look at how many NAs we have on each attribute, in order to decide if we prefer removing them or filling them.
 
-```{r, eval=FALSE}
+```{r}
+set.seed(123)
 which(apply(X = players_22, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
 ```
 
 We decide that we have a statistically dispensable number of NAs so we remove them.
 
-```{r, eval=FALSE}
+```{r}
+set.seed(123)
 players_22 <- na.omit(players_22) # delete NA
 dim(players_22)
 ```
 
 We still have a good chunk of the dataset left. Since goalkeepers have special stats, we also would like to take them out. First, we check how many we have.
 
-```{r, eval=FALSE}
+```{r}
+set.seed(123)
 goalkeepers <- str_detect(players_22$player_positions, "GK")
 sum(goalkeepers)
 ```
 
 Thus, while they are indisposable on the field, we could not say the same about their data, as it would reduce the accuracy of the classification of the other main positions.
 
-####MODIFIED
+**2.3 Subset creation**
 
-We create two subsets: one with value_eur that we will use for the Regression on the market price and the subset players_22 that will be used for th position classification. 
+We create two subsets: one with value_eur that we will use for the Regression on the market price and the subset players_22 that will be used for th position classification.
 
 ```{r}
 #subset WITH market value (for later)
-
+set.seed(123)
 players_22b <- as.data.frame(copy(players_22))
 
 players_m <-subset(players_22b, player_positions!="GK")
-head(players_m)
 
-```
-
-```{r}
 #subset WITHOUT market value
 players_22 <-subset(players_22, player_positions!="GK", select = -value_eur)
-head(players_22)
 ```
 
-
-**2.3 Labelling**
+**2.4 Labelling**
 
 Some players play in multiple positions, but we only want to identify their main one, so we only keep that one. Moreover, we turn the binary "preferred_foot" feature into a numerical type.
 
 ```{r}
+set.seed(123)
 
 #Keep only the main preferred position
 players_22$player_positions<- word(players_22$player_positions, 1, sep = fixed(","))
 unique(players_22$player_positions)
 
 # Left foot is -1 and Right foot is 1. Basically one-hot encoding but we only have 2 categories so its easy
+set.seed(123)
 players_22$preferred_foot[players_22[,"preferred_foot"]== "Left"] <- as.numeric(-1)
 players_22$preferred_foot[players_22[,"preferred_foot"]== "Right"] <- as.numeric(1)
 players_22$preferred_foot <- as.numeric(players_22$preferred_foot)
@@ -207,6 +201,7 @@ As mentioned above, since 26 labels positions are clearly too many, we cluster t
 ***Note:*** This is probably the only part where we applied our "domain knowledge".
 
 ```{r}
+set.seed(123)
 
 #central back
 players_22$player_positions[players_22[,"player_positions"]== "LCB"|players_22[,"player_positions"]== "CB"|players_22[,"player_positions"]== "RCB"] <- "CB"
@@ -240,14 +235,16 @@ players_22$player_positions[players_22[,"player_positions"]== "LS"|players_22[,"
 Lets take a look at the distribution of our labels
 
 ```{r}
+set.seed(123)
 cat<- table(factor(players_22$player_positions))
 pie(cat,
     col = hcl.colors(length(cat), "BluYl"))
 ```
 
 Time to normalize the numerical values, as promised. For that, we implement a simple re-scaling function, and we apply it on the whole dataframe.
-
 ```{r}
+set.seed(123)
+
 # normalization function
 normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
 
@@ -256,12 +253,12 @@ players_norm <- as.data.frame(lapply(players_22[, c(3:42)], normalize))
 head(players_norm,5)
 ```
 
-**2.3 Correlation matrix and feature selection**
+**2.5 Correlation matrix and feature selection**
 
 We create a correlation matrix. It is big and maybe a bit hard to read, but R gives us the visually appealing option to group plotted features into highly correlated clusters.
 
 ```{r}
-
+set.seed(123)
 cormatrix <- cor(players_norm)
 corrplot(cor(players_norm), method = 'shade', sig.level = 0.10, type = 'lower', order = 'hclust', title = "Correlation plot before feature selection")
 ```
@@ -269,6 +266,7 @@ corrplot(cor(players_norm), method = 'shade', sig.level = 0.10, type = 'lower', 
 Now, in order to reduce the number of features, we take away the ones that provide the data with the highest overall correlation.
 
 ```{r}
+set.seed(123)
 highcorr <- findCorrelation(cormatrix, cutoff=0.8)
 highcorr
 col2<-colnames(players_norm)
@@ -277,11 +275,14 @@ col2<-col2[-highcorr]
 corrplot.mixed(cor(players_norm[highcorr]), lower = "number", upper="shade", tl.pos = 'lt')
 ```
 
-Now we take a look if we eliminated some of the dark spots from our correlation matrix.
 
-###### MODIFIED added players_norm[col2] & players_f.selected
+ We take a look if we eliminated some of the dark spots from our correlation matrix.
+
+
 
 ```{r}
+set.seed(123)
+
 corrplot(cor(players_norm[col2]), type = 'lower',method = 'shade', order = 'hclust', title = "Correlation plot after feature selection")
 players_f.selected <- players_norm[col2]  #features left
 players_model <- subset(players_f.selected)
@@ -291,18 +292,27 @@ players_model$player_positions <- c(players_22$player_positions)
 ```
 
 ```{r}
+set.seed(123)
 colnames(players_model)
-```
 
-### MODIFIED Now we have 24 features ---- violin plots for players_f.selected 
+```
 
 We did. Looks much better and ready for further investigation.
 
-**2.4 Individual feature investigation**
+**2.6 Best Subset selection**
+```{r}
+which(apply(X = players_model, MARGIN = 2, FUN = anyNA) == TRUE) # check for NA
+
+fit_all <- regsubsets(as.factor(player_positions) ~ .,data=players_model)
+summary(fit_all)
+```
+
+**2.6 Individual feature investigation**
 
 We want to look at the individual distributions of each of the features left. We fit violin plots, and put boxplots on top of them.
 
 ```{r}
+set.seed(123)
 #here we do the cool violin plots to check distributions
 par(mfrow=c(4,2))
 ggplot(data = melt(players_f.selected[,1:4]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
@@ -310,49 +320,30 @@ ggplot(data = melt(players_f.selected[,1:4]), aes(y = variable, x = value, fill 
 
 
 ```{r}
+set.seed(123)
 ggplot(data = melt(players_f.selected[,5:8]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
 Weak foot is a discrete RV with values in 1-5. Preferred foot is +/-1, as discussed above. Still, as in real life, a significantly larger proportion of right-footed people.
 
 ```{r}
-
+set.seed(123)
 ggplot(data = melt(players_f.selected[,9:12]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
 ```{r}
-
+set.seed(123)
 ggplot(data = melt(players_f.selected[,13:16]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
 ```{r}
-
+set.seed(123)
 ggplot(data = melt(players_f.selected[,17:20]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
 ```
 
 ```{r}
-
+set.seed(123)
 ggplot(data = melt(players_f.selected[,21:24]), aes(y = variable, x = value, fill = variable, alpha = 0.7)) + geom_boxplot() + geom_violin() + scale_fill_manual(values = viridis(5)) + guides(fill = "none")
-```
-
-
-**2.5 Principal Component Analysis**
-
-```{r}
-players.pca<-prcomp(players_norm,center=TRUE, scale.=TRUE)
-summary(players.pca)
-```
-
-We obtain 24 components. We want to visualise them.
-
-```{r}
-fviz_eig(players.pca, addlabels = TRUE)
-```
-
-The first 5 components account for 77.7% of the explained variance, while the first 2 for 58.3% of it. Now we want to see how our features project into the main 2D factor plane.
-
-```{r}
-fviz_pca_var(players.pca, labelsize = 2, alpha.var = 1.0, title = "Factor Plane for the FIFA 22 Data")
 ```
 
 ### 3. Modelling - Multiclass classification
@@ -363,9 +354,9 @@ Now its finally time to dive into the actual modelling process. We experiment an
 
 Classical split for training and testing models. We keep the classical 70%-30% approach.
 
-#### MODIFIED ---- tr and val set print were inverted
 
 ```{r}
+set.seed(123)
 ## 70% of the sample size
 smp_size <- floor(0.7 * nrow(players_model))
 
@@ -382,21 +373,22 @@ print(dim(test))
 
 We factorise the labels, so we can use them in our models.
 
-#### MODIFIED 41 --> 25
 
 ```{r}
+set.seed(123)
 #factorise labels
 train_y <- as.factor(train[,25])
 test_y <- as.factor(test[,25])
 #remove labels from sets
 train <- train[1:(length(train)-1)]
 test <- test[1:(length(test)-1)]
+head(test)
 ```
 
 Just to take a sneak peek, this is how the validation labels are roughly distributed on the factor plane.We notice that the factor plane sepparates some types of labels quite good, some not.
 
 ```{r}
-
+set.seed(123)
 test.pca<-prcomp(test,center=TRUE, scale.=TRUE)
 fviz_pca_biplot(test.pca,
                 label = "all",
@@ -410,6 +402,7 @@ fviz_pca_biplot(test.pca,
 Before we train any model, we want to create a function that computes accuracy, and one that selects the missclassified data so we can visualize it later on the factor plane.
 
 ```{r}
+set.seed(123)
 accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
 
 missclassified <- function(pred, label){
@@ -417,11 +410,15 @@ missclassified <- function(pred, label){
   l[c(pred)==c(label)]<- 0
   return (as.factor(l))
 }
+
+#cross validation
+ctrl <-  trainControl(method = "repeatedcv", number = 100, repeats = 10)
 ```
 
 **3.3 Knn**
 
 ```{r}
+set.seed(123)
 ##run knn function
 class <- factor(c(train_y))
 
@@ -431,18 +428,20 @@ test <- test[1:(length(test)-1)]
 accuracy_vect <- c()
 ks<- c()
 
-for(k1 in seq(5,100,5)) {
+for(k1 in seq(1,100)) {
     test_pred <-knn(train = train, test = test, cl = class, k = k1)
     accuracy_vect <- append(accuracy_vect,accuracy(table(test_y,test_pred)))
     ks <- append(ks, k1)
 }
 
 plot(ks, accuracy_vect, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
+abline(h = max(accuracy_vect), col = "darkorange", lty = 3)
 ```
 
-We get the best k and its accuracy.
+We get the best k and its accuracy, represented by the orange line.
 
 ```{r}
+set.seed(123)
 print('The best K in our case is:')
 print(ks[which.max(accuracy_vect)])
 print('And it gives us an accuracy of:' )
@@ -450,122 +449,76 @@ print(accuracy_vect[which.max(accuracy_vect)])
 ```
 
 ```{r}
-test_pred <-knn(train = train, test = test, cl = class, k = 40)
+set.seed(123)
+test_pred <-knn(train = train, test = test, cl = class, k = 51)
 df_pred=data.frame(test_y,test_pred)
 
 ```
-
 We generate a confusion matrix to check misslabeled data
-
-```{r}
-#Evaluate the model performance
-CrossTable(x=test_y, y=test_pred,prop.chisq = FALSE)
-```
-
-```{r}
-#creating confusion matrix
-conf_mat <- confusion_matrix(targets = test_y,
-                             predictions = test_pred)
-```
-
-Now we visualise it on the factor plane
-
-```{r}
-fviz_pca_biplot(test.pca,
-                label = "all",
-                col.ind = missclassified(test_pred,test_y),
-                legend.title = "Players",
-                title = "Classification of labeled/misslabeled players for KNN")
-
-```
-
-**3.4 Random Forrest**
-
-The hyperparameter we experiment with is the number of randomly sampled variables. Changing the number of trees does not do much, and from previous experimentation we realized that around 500 is the optimum value.
 
 ```{r}
 set.seed(123)
-a=c()
-i=5
-for (i in 5:10) {
-  model_RF <- randomForest(train_y ~ ., data = train, ntree = 500, mtry = i, importance = TRUE)
-  prediction_RF <- predict(model_RF, test, type = "class")
-  a[i-4] = mean(prediction_RF == test_y) # nicer way to do accuracy than we did
-}
-plot(5:10,a)
-```
-
-```{r}
-a
-```
-
-a = 8 is the best one.
-
-We plot missclassified labels again on the factor plane.
-
-```{r}
-model_RF <- randomForest(train_y ~ ., data = train, ntree = 500, mtry = 8, importance = TRUE)
-prediction_RF <- predict(model_RF, test, type = "class")
-```
-
-```{r}
-summary(model_RF)
-```
-
-```{r}
-fviz_pca_biplot(test.pca,
-                label = "all",
-                col.ind = missclassified(prediction_RF,test_y),
-                legend.title = "Players",
-                title = "Classification of labeled/misslabeled players for RF")
-```
-
-We generate a confusion matrix to check misslabeled data
-
-```{r}
 #Evaluate the model performance
-CrossTable(x=test_y, y=prediction_RF,prop.chisq = FALSE)
+CrossTable(x=test_y, y=test_pred,prop.chisq = FALSE)
 ```
-
-**3.5 SVM**
+**3.4 Logistic regression**
 
 ```{r}
+set.seed(123)
+modellr <- nnet::multinom( train_y~., data = train,trControl=crtl)
+```
+```{r}
+set.seed(123)
+prediction_lr <- predict(modellr, test, type = "class")
+accuracy(table(test_y, prediction_lr))
+```
+Now we create a confusion matrix
+```{r}
+set.seed(123)
+conf_mat <- confusionMatrix(data=prediction_lr, reference = test_y)
+conf_mat
+```
+**3.5 Linear Discriminant Analysis**
+```{r}
+set.seed(123)
+model_lda <- lda(train_y~., data = train)
+prediction_lda <-  predict(model_lda, test, type = "class")
+summary(model_lda)
+```
+```{r}
 
-svm1 <- svm(formula= train_y~., data=train, 
-          type="C-classification", kernal="radial", 
-          gamma=0.1, cost=10)
+set.seed(123)
+accuracy(table(test_y, prediction_lda$class))
+```
+Now we plot the obtained model
+```{r}
+
+set.seed(123)
+plot(model_lda)
+```
+```{r}
+set.seed(123)
+confusionMatrix(data=prediction_lda$class, reference = test_y)
 ```
 
-We produce a summary of the model.
+**3.6 Quadratic Discriminant Analysis**
 
 ```{r}
-prediction_svm <- predict(svm1,test, type = "class")
-accuracy(table(test_y, prediction_svm))
+set.seed(123)
+model_qda <- qda(train_y~., data = train)
+prediction_qda <-  predict(model_qda, test, type = "class")
+summary(model_qda)
 ```
-
 ```{r}
-summary(svm1)
+set.seed(123)
+accuracy(table(test_y, prediction_qda$class))
 
 ```
-
-We plot misslabeled data
-
 ```{r}
-fviz_pca_biplot(test.pca,
-                label = "all",
-                col.ind = missclassified(prediction_svm,test_y),
-                legend.title = "Players",
-                title = "Classification of labeled/misslabeled players for SVM")
+set.seed(123)
+confusionMatrix(data=prediction_lda$class, reference = test_y)
 ```
-
-We generate a confusion matrix to check misslabeled data
-
-```{r}
-#Evaluate the model performance
-CrossTable(x=test_y, y=prediction_svm,prop.chisq = FALSE)
-```
-
-**3.6 Label Grouping**
+**3.7 Label Grouping**
 
 The accuracies obtained are decent but not great, and the confusion matrix clearly explains why. Positions like CB, ST, LB, RB get classified really well. On the opposite side, the most commonly misclassified position are CAM with CM, and RW with LW and viceversa.
 
@@ -574,6 +527,7 @@ The first misclassification is explainable with basic attributes of the role. Ce
 The second one is a bit more tricky to detect. For Left Back and Right Back the preferred foot plays a big role, since it's hard to find a righty who plays on the left and viceversa, because they cross and tackle mostly with their dominant foot. For RW and LW the distinction is less definable based on the preferred foot. On one hand, a lot of righty players like to play as Left Winger so they can converge to the center to shoot with their strong foot. Same is true for lefty on RW. On the other hand, many Wingers like to cross more, so they tend to do it with their preferred foot (LW with left and RW with right). So for the model of course it's really not an easy job to detect these differences that pertain to the single player style of play; and this problem explains the drop in accuracy for these positions. In order to improve the accuracy of our classifiers, we group RW and LW together in a new position 'W = Winger' and the CAM with CM.
 
 ```{r}
+set.seed(123)
 test_y2 <- test_y
 levels(test_y2)[levels(test_y2) == "RW"| levels(test_y2) == "LW"] <- "W"
 levels(test_y2)[levels(test_y2) == "CAM"| levels(test_y2) == "CM"] <- "CM"
@@ -587,91 +541,247 @@ unique(test_y2)
 ```
 
 ```{r}
+set.seed(123)
 #plot pie chart again
 cat<- table(factor(test_y2))
 pie(cat, col = hcl.colors(length(cat), "BluYl"))
 ```
 
-This is the new distribution of labels. Now we reproduce the same experiments, expecting a hefty increase in accuracy, with the price of ablation. **3.6.1 Knn**
+This is the new distribution of labels. Now we reproduce the same experiments, expecting a hefty increase in accuracy, with the price of ablation.
+
+**3.7.1 Knn**
 
 ```{r}
- prediction_knn2 <-knn(train = train, test = test, cl = train_y2, k = 20)
- CrossTable(x=test_y2, y=prediction_knn2,prop.chisq = FALSE)
+set.seed(123)
+prediction_knn2 <-knn(train = train, test = test, cl = train_y2, k = 51)
+confusionMatrix(data=prediction_knn2, reference = test_y2)
+```
+```{r}
+accuracy(table(test_y2, prediction_knn2))
+
+```
+**3.7.2 Logistic Regression**
+```{r}
+set.seed(123)
+modellr2 <- nnet::multinom( train_y2~., data = train,trControl=crtl)
+```
+```{r}
+set.seed(123)
+prediction_lr2 <- predict(modellr2, test, type = "class")
+accuracy(table(test_y2, prediction_lr2))
+```
+Now we create a confusion matrix
+```{r}
+set.seed(123)
+confusionMatrix(data=prediction_lr2, reference = test_y2)
+```
+**3.7.3 Linear Discriminant Analysis**
+```{r}
+set.seed(123)
+model_lda2 <- lda(train_y2~., data = train)
+prediction_lda2 <-  predict(model_lda2, test, type = "class")
+summary(model_lda2)
+```
+```{r}
+
+set.seed(123)
+accuracy(table(test_y2, prediction_lda2$class))
+```
+Now we plot the obtained model
+```{r}
+
+set.seed(123)
+plot(model_lda2)
+```
+```{r}
+set.seed(123)
+confusionMatrix(data=prediction_lda2$class, reference = test_y2)
 ```
 
-The confusion matrix looks much better
+**3.7.4 Quadratic Discriminant Analysis**
 
 ```{r}
-  accuracy(table(prediction_knn2, test_y2))
+set.seed(123)
+model_qda2 <- qda(train_y2~., data = train)
+prediction_qda2 <-  predict(model_qda2, test, type = "class")
+summary(model_qda2)
 ```
+```{r}
+set.seed(123)
+accuracy(table(test_y2, prediction_qda2$class))
+
+```
+```{r}
+set.seed(123)
+confusionMatrix(data=prediction_lda2$class, reference = test_y2)
+```
+**3.8 Independent binary classification on confused labels**
+
+**3.8.1 Dataset slicing and model preparation**
+
+First we slice the rows with positions RW and LW and we prepare a train-test split for the mini dataset
+```{r}
+players_model_W <- players_model[players_model$player_positions == "RW" | players_model$player_positions == "LW",]
+dim(players_model_W)
+```
+```{r}
+set.seed(123)
+## 70% of the sample size
+train_ind_W <- sample(seq_len(nrow(players_model_W)), size = floor(0.7 * nrow(players_model_W)))
+
+trainW <- players_model_W[train_ind_W, ]
+testW <- players_model_W[-train_ind_W, ]
+
+#We factorise the labels, so we can use them in our models.
+
+train_yW <- as.factor(trainW[,25])
+test_yW <- as.factor(testW[,25])
+#remove labels from sets
+trainW <- trainW[1:(length(trainW)-1)]
+testW <- testW[1:(length(testW)-1)]
+```
+Now we do the same for the pair CM-CAM
+```{r}
+players_model_CM <- players_model[players_model$player_positions == "CM" | players_model$player_positions == "CAM",]
+dim(players_model_CM)
+```
+```{r}
+set.seed(123)
+## 70% of the sample size
+train_ind_CM <- sample(seq_len(nrow(players_model_CM)), size = floor(0.7 * nrow(players_model_CM)))
+
+trainCM <- players_model_CM[train_ind_CM, ]
+testCM <- players_model_CM[-train_ind_CM, ]
+
+#We factorise the labels, so we can use them in our models.
+
+train_yCM <- as.factor(trainCM[,25])
+test_yCM <- as.factor(testCM[,25])
+#remove labels from sets
+trainCM <- trainCM[1:(length(trainCM)-1)]
+testCM <- testCM[1:(length(testCM)-1)]
+unique(test_yCM)
+```
+
+**3.8.2 Individual modelling**
+Now we try all models on the LW/RW pair
 
 ```{r}
-fviz_pca_biplot(test.pca,
-                label = "all",
-                col.ind = missclassified(prediction_knn2, test_y2),
-                legend.title = "Players",
-                title = "Classification of labeled/misslabeled players for KNN2")
-```
+set.seed(123)
+modellrW <- nnet::multinom( train_yW~., data = trainW, trControl=crtl)
 
-**3.6.2 Random Forrest**
+prediction_lrW <- predict(modellrW, testW, type = "class")
+accuracy(table(test_yW, prediction_lrW))
+```
+```{r}
+set.seed(123)
+model_ldaW <- lda(train_yW~., data = trainW)
+prediction_ldaW <-  predict(model_ldaW, testW, type = "class")
+
+accuracy(table(test_yW, prediction_ldaW$class))
+
+```
+```{r}
+set.seed(123)
+model_qdaW <- qda(train_yW~., data = trainW)
+prediction_qdaW <-  predict(model_qdaW, testW, type = "class")
+
+accuracy(table(test_yW, prediction_qdaW$class))
+
+```
+```{r}
+set.seed(123)
+classW <- factor(c(train_yW))
+
+
+accuracy_vectW <- c()
+ksW<- c()
+
+for(k1 in seq(1,50)) {
+    test_predW <-knn(train = trainW, test = testW, cl = classW, k = k1)
+    accuracy_vectW <- append(accuracy_vectW,accuracy(table(test_yW,test_predW)))
+    ksW <- append(ksW, k1)
+}
+
+plot(ksW, accuracy_vectW, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
+```
+```{r}
+set.seed(123)
+print('The best K in our case is:')
+print(ksW[which.max(accuracy_vectW)])
+print('And it gives us an accuracy of:' )
+print(accuracy_vectW[which.max(accuracy_vectW)])
+```
+KNN seems to offer a little improvement in accuracy, with K=22. Now we do the same for the CM/CAM pair
 
 ```{r}
- model_RF2 <- randomForest(train_y2 ~ ., data = train, ntree = 500, mtry = 8, importance = TRUE)
-prediction_RF2 <- predict(model_RF2, test, type = "class")
-summary(model_RF2)
+set.seed(123)
+modellrCM <- nnet::multinom( train_yCM~., data = trainCM, trControl=crtl)
+
+prediction_lrCM <- predict(modellrCM, testCM, type = "class")
+accuracy(table(test_yCM, prediction_lrCM))
 ```
+```{r}
+set.seed(123)
+model_ldaCM <- lda(train_yCM~., data = trainCM)
+prediction_ldaCM <-  predict(model_ldaCM, testCM, type = "class")
+
+accuracy(table(test_yCM, prediction_ldaCM$class))
+
+```
+```{r}
+set.seed(123)
+model_qdaCM <- qda(train_yCM~., data = trainCM)
+prediction_qdaCM <-  predict(model_qdaCM, testCM, type = "class")
+
+accuracy(table(test_yCM, prediction_qdaCM$class))
+
+```
+```{r}
+set.seed(123)
+classCM <- factor(c(train_yCM))
+
+
+accuracy_vectCM <- c()
+ksCM<- c()
+
+for(k1 in seq(1,50)) {
+    test_predCM <-knn(train = trainCM, test = testCM, cl = classCM, k = k1)
+    accuracy_vectCM <- append(accuracy_vectCM,accuracy(table(test_yCM,test_predCM)))
+    ksCM <- append(ksCM, k1)
+}
+
+plot(ksCM, accuracy_vectCM, type = "p", col="blue", xlab="K's", ylab="accuracys", main="Accuracy vs K value plot")
+```
+```{r}
+set.seed(123)
+print('The best K in our case is:')
+print(ksCM[which.max(accuracy_vectCM)])
+print('And it gives us an accuracy of:' )
+print(accuracy_vectCM[which.max(accuracy_vectCM)])
+```
+In this case, Linear discriminant analysis sepparates the CM/CAM labels the best
+
+**3.9 Model merging**
+Now, in order to improve accuracy, we take the best model for grouped labels with the least confusion, and add the best models for the most confused pairs using a 'Divide et impera' approach to check if we improved our accuracy.
 
 ```{r}
-accuracy(table(prediction_RF2, test_y2))
+  final <- c()
+  w<-1
+  for (i in 1:nrow(test)){
+    a<- as.character(predict(modellr2, test[i,], type = "class"))
+    if (a == "W"){
+      a <- as.character(test_predW[w])
+      w <- w+1
+    }
+    else if (a == "CM"){a <-as.character(predict(model_ldaCM, test[i,], type = "class")$class)
+    }
+    final<- append(final, a)
+  }
+
+final<- as.factor(final)
+accuracy(table(test_y, final))
 ```
-
-```{r}
-fviz_pca_biplot(test.pca,
-                label = "all",
-                col.ind = missclassified(prediction_RF2,test_y2),
-                legend.title = "Players",
-                title = "Classification of labeled/misslabeled players for RF2")
-```
-
-We generate a confusion matrix to check misslabeled data
-
-```{r}
-#Evaluate the model performance
-CrossTable(x=test_y, y=prediction_RF2,prop.chisq = FALSE)
-```
-
-**3.6.3 SVM**
-
-```{r}
-svm2 <- svm(formula= train_y2~., data=train, 
-          type="C-classification", kernal="radial", 
-          gamma=0.1, cost=10)
-prediction_svm2 <- predict(svm2, test, type = "class")
-```
-
-```{r}
-summary(model_svm2)
-```
-
-```{r}
-accuracy(table(test_y2, prediction_svm2))
-```
-
-```{r}
-fviz_pca_biplot(test.pca,
-                label = "all",
-                col.ind = missclassified(prediction_RF2,test_y2),
-                legend.title = "Players",
-                title = "Classification of labeled/misslabeled players for RF2")
-```
-
-We generate a confusion matrix to check misslabeled data
-
-```{r}
-#Evaluate the model performance
-CrossTable(x=test_y, y=prediction_svm2,prop.chisq = FALSE)
-```
-
 **4. Regression on market value using Ridge and Lasso**
 
 First we take the players_market and remove the player_positions column that we will not consider for this task.
@@ -679,7 +789,6 @@ First we take the players_market and remove the player_positions column that we 
 ```{r}
 players_market <-subset(players_m, select = -player_positions)
 head(players_market)
-
 ```
 
 
@@ -691,7 +800,6 @@ In this part we explore two shrinkage methods, namely Ridge regression and Lasso
 
 ```{r}
 players_market$value_eur <- as.integer(players_market$value_eur)
-
 # Left foot is -1 and Right foot is 1. Basically one-hot encoding but we only have 2 categories so its easy
 players_market$preferred_foot[players_market[,"preferred_foot"]== "Left"] <- as.numeric(-1)
 players_market$preferred_foot[players_market[,"preferred_foot"]== "Right"] <- as.numeric(1)
@@ -702,12 +810,9 @@ head(players_market)
 
 ```{r}
 #norm
-
 # normalization function
 normalize <-function(x) { (x -min(x))/(max(x)-min(x))   }
-
 colnames(players_market)
-
 # normalize 
 players_market_norm <- as.data.frame(lapply(players_market[, c(2:41)], normalize))
 head(players_market_norm,5)
@@ -727,11 +832,9 @@ Ridge uses  quadratic shrinking
 
 ```{r}
 #ridge regression
-
 grid.ridge <-10^seq(-4,2,length=100)
 ridge.mod<-glmnet(X,y,alpha = 0,lambda = grid.ridge)
 plot(ridge.mod, xvar="lambda", label= TRUE)
-
 ```
 The plot illustrates how much the coefficients are penalized for different values of  λ. Notice none of the coefficients are forced to be zero
 
@@ -750,33 +853,27 @@ We check the coefficient for a generic value of lambda (50Th)
 dim(coef(ridge.mod))
 ridge.mod$lambda[50]
 coef(ridge.mod)[,50]
-
 ```
 
 
 ```{r}
 # evaluate the MSE on a test set
 set.seed(123)
-
 # select n/2 observations for training set
-
 train <- sample(1:nrow(X), nrow(X)/2)
 test <- (-train)
 y.test <- y[test]
-
 ```
 
 ```{r}
 # fit ridge regression on the training set
 ridge.mod <- glmnet(X[train, ], y[train], alpha = 0,
                     lambda = grid.ridge, thresh = 1e-12)
-
 ```
 
 We estimate the test MSE for one lambda value, e.g lambda = 9
 ```{r}
 #We estimate the test MSE for one lambda value, e.g lambda = 9
-
 ridge.pred <- predict(ridge.mod, s = 9, newx = X[test, ], type="response")
 mean((ridge.pred - y.test)^2)
 ```
@@ -785,7 +882,6 @@ let's see the coefficients for lambda = 9
 ```{r}
 predict(ridge.mod, s = 9, exact = TRUE, type = "coefficients",
         x = X[train, ], y = y[train])[1:41, ]
-
 ```
 
 We use cross-validation to choose the value of lambda
@@ -797,9 +893,7 @@ cv.out.ridge <- cv.glmnet(X[train, ], y[train], alpha = 0, nfold=10)
 
 ```{r}
 # lambda values
-
 cv.out.ridge$lambda[1:10]
-
 ```
 ```{r}
 summary(cv.out.ridge$lambda)
@@ -807,7 +901,6 @@ summary(cv.out.ridge$lambda)
 
 ```{r}
 # The mean cross-validated error
-
 cv.out.ridge$cvm[1:10]
 ```
 The following plot shows the cross-validation curve (red dotted line) with upper and lower standard deviation curves along the lambda sequence (error bars). 
@@ -822,7 +915,6 @@ plot(cv.out.ridge)
 
 ```{r}
 # identify the best lambda value
-
 i.bestlam <- which.min(cv.out.ridge$cvm)
 i.bestlam 
 ```
@@ -845,11 +937,8 @@ mean((ridge.pred - y.test)^2)
 
 ```{r}
 # fit the coefficient with lambda=bestlam on all the data
-
 out <- glmnet(X, y, alpha = 0)
 predict(out, type = "coefficients", s = bestlam)
-
-
 ```
 ```{r}
 # residual sum of squares
@@ -862,18 +951,15 @@ The R squared is a statistical measure of how well the regression
 predictions approximate the real data points.
 An R2 of 1 indicates that the regression predictions perfectly fit the data
 ```{r}
-
 ridge.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
 ridge.rsq <- 1 - ridge.rss/ridge.tss  # R squared
 ridge.rsq
-
 ```
 
 #Lasso
 Lasso uses absolute-value shrinking
 
 ```{r}
-
 grid.lasso<-10^seq(-0.5,-8,length=100)
 lasso.mod<-glmnet(X,y,alpha = 1,lambda = grid.lasso)
 plot(lasso.mod, xvar="lambda", label = TRUE)
@@ -897,14 +983,12 @@ lasso.mod <- glmnet(X[train,], y[train], alpha=1, lambda=grid.lasso)
 
 ```{r}
 # apply 10fold cross-validation to the training set
-
 set.seed(123)
 cv.out.lasso <- cv.glmnet(X[train,], y[train], alpha=1)
 plot(cv.out.lasso)
 ```
 
 ```{r}
-
 # estimate test MSE
 bestlam <- cv.out.lasso$lambda.min
 lasso.pred <- predict(lasso.mod, s=bestlam, newx=X[test,])
@@ -921,21 +1005,17 @@ We check which coefficients were forced to zero
 lasso.coef[lasso.coef!=0]
 length(lasso.coef[lasso.coef!=0])
 which(lasso.coef==0)
-
 ```
 Only dribbling and physic were forced to be zero 
 ```{r}
 # residual sum of squares
 lasso.rss <- sum((lasso.pred - y.test)^2)
 lasso.rss
-
 ```
 ```{r}
-
 lasso.tss <- sum((y.test - mean(y.test)) ^ 2)  ## total sum of squares
 lasso.rsq <- 1 - lasso.rss/lasso.tss  # R squared
 lasso.rsq
-
 ```
 
 ```{r}
@@ -958,4 +1038,3 @@ On one hand, football is a very heterogeneous sport and often the values of the 
 
 As regard players' market price, the variables to be considered exceed the ones we were in possess of. Of course age plays a big role, since young footballers have way larger margins of improvement; but it is also true that aspects as the contract exipiry or the international profile of the player have a significant effect in real life. When the date of expiry of a player approach, the club is more inclined to agree even a lower price in order not to lose his athlete for free. Footballer players that have a huge fan base (for example on social media) will have a higher price since the club can profit from his visibility, that will result in more supporters and more revenue. 
 With informations such the forementioned we are confident the predictions would be definitely more accurate.
-
